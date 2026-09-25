@@ -1,0 +1,2629 @@
+# Cold Start curriculum — the concept atlas.
+#
+# Every concept is something a working Python engineer has to recognise in
+# real code. The scheduler picks concepts (respecting tier and prereqs) and the
+# generator plants them in client codebases as bugs or feature tickets.
+#
+#   tier 1  foundation   — what a syntax-comfortable newcomer should meet first
+#   tier 2  intermediate — everyday professional Python
+#   tier 3  advanced     — subtle semantics, distributed/concurrent systems
+#
+# bug_patterns    realistic production manifestations (code shape + symptom)
+# feature_patterns realistic tickets that exercise the concept
+# beacons         what an expert notices while skimming that signals the concept
+
+regions:
+  - id: core
+    name: Python Core
+    blurb: "The language's own semantics: names and objects, numbers and strings, control flow, exceptions and iteration."
+  - id: datamodel
+    name: Idioms & Data Model
+    blurb: "How Python objects cooperate: equality and hashing, classes and attributes, special methods, dataclasses, decorators and context managers."
+  - id: stdlib
+    name: Standard Library
+    blurb: "The batteries — collections, itertools, functools, datetime, re, json, logging and friends — and their sharp edges."
+  - id: ds
+    name: Data Structures
+    blurb: "Choosing and using the right container: hash maps, queues, heaps, trees, graphs, intervals and caches as they appear in real systems."
+  - id: algo
+    name: Algorithms
+    blurb: "Algorithms in context: complexity you can spot in review, searching, graphs, parsing, streaming and calendar logic."
+  - id: concurrency
+    name: Concurrency & Async
+    blurb: "Threads, processes and asyncio: races, locks, pools, queues, cancellation and keeping the event loop responsive."
+  - id: data
+    name: Data & Persistence
+    blurb: "Talking to databases and files: SQL semantics, transactions, pagination, schema and format evolution, data cleaning."
+  - id: systems
+    name: Systems & Scale
+    blurb: "Patterns that keep services correct under load and failure: caching, rate limits, retries, idempotency, queues, sharding, observability."
+  - id: practice
+    name: Engineering Practice
+    blurb: "The craft around the code: testing, debugging, error handling, API design, security, refactoring and project structure."
+  - id: ecosystem
+    name: Ecosystem Libraries
+    blurb: "Libraries you'll meet in real codebases — pydantic, FastAPI, SQLAlchemy, httpx, click, pandas, numpy and more."
+
+concepts:
+  # ---------------------------------------------------------------- core ----
+  - id: names-and-binding
+    name: Names, binding & aliasing
+    region: core
+    tier: 1
+    summary: "Assignment never copies — it binds another name to the same object, so a mutation through one name is visible through every name bound to it."
+    prereqs: []
+    bug_patterns:
+      - "limits = config['limits']; limits['max_items'] = 10 — a 'local tweak' mutates the shared config dict that every other module reads"
+      - "a helper receives the caller's list and calls .sort()/.append() on it, so the caller's data silently changes order or grows"
+      - "self.items = items stores the caller's list without copying; the caller later clears its list and the object's state vanishes"
+    feature_patterns:
+      - "Add a 'preview' / what-if calculation that must not mutate the live objects it reads from"
+    beacons:
+      - "a parameter that is mutated in place (append, sort, update, pop) inside a function"
+      - "a constructor storing a passed-in list or dict without copying it"
+
+  - id: mutable-defaults
+    name: Mutable default arguments
+    region: core
+    tier: 1
+    summary: "Default values are evaluated once, when the def statement runs — a list/dict/set default is shared by every call that doesn't pass its own."
+    prereqs: [names-and-binding]
+    bug_patterns:
+      - "def add_item(item, cart=[]): the default list is created once, so every new cart shares items from previous calls"
+      - "def build_headers(extra={}): headers accumulate across requests because the function writes into the default dict"
+      - "def __init__(self, tags=set()): every instance created without tags shares one set, so tagging one object tags them all"
+      - "def record_event(name, at=datetime.now()): every event gets the timestamp from when the module was imported"
+    feature_patterns:
+      - "Add an optional 'labels' parameter to a widely used factory function without introducing shared state"
+    beacons:
+      - "a list/dict/set literal (or a call like datetime.now()) as a default in a def signature"
+      - "a function that mutates a parameter that has a default value"
+
+  - id: shallow-vs-deep-copy
+    name: Shallow vs deep copy
+    region: core
+    tier: 1
+    summary: "list(x), x.copy(), dict(x) and slicing copy only the outer container — nested objects stay shared; [[0] * n] * m repeats one row object m times."
+    prereqs: [names-and-binding]
+    bug_patterns:
+      - "grid = [[0] * cols] * rows; setting grid[0][1] = 1 changes column 1 in every row"
+      - "snapshot = state.copy() before an edit, but nested dicts are shared, so the 'undo' snapshot changes along with the live state"
+      - "order = DEFAULT_ORDER.copy(); order['lines'].append(line) pollutes the module-level template for every later order"
+    feature_patterns:
+      - "Add undo/redo snapshots to an editor or planner state object"
+      - "Add a 'duplicate this configuration' action that produces a fully independent copy"
+    beacons:
+      - "[[...] * n] * m or [row] * n building a 2-D structure"
+      - ".copy() / list() / dict() applied to a structure that contains lists or dicts"
+
+  - id: truthiness-none
+    name: Truthiness & None checks
+    region: core
+    tier: 1
+    summary: "0, 0.0, '', [], {} and None are all falsy — `if x:` and `x or default` can't tell 'missing' from 'legitimately zero or empty'; test `is None` when you mean None."
+    prereqs: []
+    bug_patterns:
+      - "discount = order.discount or DEFAULT_DISCOUNT — an explicit 0% discount is replaced by the 10% default"
+      - "if not quantity: raise ValueError('quantity required') rejects a valid quantity of 0"
+      - "timeout = options.get('timeout') or 30 turns timeout=0 ('don't wait') into a 30-second wait"
+      - "if user.nickname: treats '' and None the same, so clearing a field is indistinguishable from never setting it"
+    feature_patterns:
+      - "Allow an explicit zero (free shipping, zero retries, no grace period) where the code currently treats 0 as 'not configured'"
+    beacons:
+      - "`value or default` where value can legitimately be 0, '' or []"
+      - "`if not value:` guarding a numeric or optional field"
+
+  - id: equality-identity
+    name: Equality vs identity (== vs is)
+    region: core
+    tier: 1
+    summary: "== compares values, `is` compares object identity — use `is` for None and sentinels only, never for numbers or strings."
+    prereqs: [names-and-binding]
+    bug_patterns:
+      - "if status is 'shipped': works in unit tests (interned literals) but fails for strings read from JSON or the database"
+      - "if retries is 1000: passes for small cached ints (-5..256) in dev data, then silently fails for larger values in production"
+      - "a sentinel default (_MISSING = object()) checked with == against user objects whose __eq__ says True for everything"
+    feature_patterns: []
+    beacons:
+      - "`is` / `is not` used with a string, number or tuple literal"
+      - "sentinel objects compared with == instead of is"
+
+  - id: scope-legb
+    name: Scope, LEGB & shadowing
+    region: core
+    tier: 2
+    summary: "A name assigned anywhere in a function is local to the whole function (hence UnboundLocalError), and local names can shadow builtins and globals you meant to use."
+    prereqs: [names-and-binding]
+    bug_patterns:
+      - "a nested helper does total += amount on an outer variable and raises UnboundLocalError because the assignment makes it local"
+      - "list = load_rows() at module level shadows the builtin, so a later list(generator) raises 'list' object is not callable"
+      - "a loop variable named id or type shadows the builtin, and a later line in the same function uses the loop value by accident"
+      - "a function assigns to a module-level cache name inside one branch, so reads in the other branch raise UnboundLocalError"
+    feature_patterns: []
+    beacons:
+      - "variables named list, dict, id, type, input, sum, max, min, filter or format"
+      - "augmented assignment (+=) to a name defined in an enclosing or module scope"
+
+  - id: late-binding-closures
+    name: Late-binding closures
+    region: core
+    tier: 2
+    summary: "Closures capture variables, not values — functions created in a loop all see the loop variable's final value unless you bind it (default argument or functools.partial)."
+    prereqs: [scope-legb]
+    bug_patterns:
+      - "handlers = [lambda: notify(user) for user in users] — every handler notifies the last user"
+      - "a loop registers on_reading callbacks per sensor channel with lambda v: store(channel, v); every reading lands on the last channel"
+      - "retry callbacks built in a loop over endpoints all retry the final endpoint"
+    feature_patterns:
+      - "Add per-item hooks or callbacks generated from a configuration list"
+    beacons:
+      - "a lambda or nested def created inside a for loop that references the loop variable"
+      - "a list or dict of callables built by a comprehension"
+
+  - id: numeric-semantics
+    name: Numeric semantics (floats, division, rounding)
+    region: core
+    tier: 1
+    summary: "Floats are binary approximations (0.1 + 0.2 != 0.3), // floors toward negative infinity, and round() uses banker's rounding (round(2.5) == 2)."
+    prereqs: []
+    bug_patterns:
+      - "a 'paid in full' check compares summed float prices with ==, and 0.1 + 0.2 == 0.3 is False"
+      - "round(amount, 2) turns 2.675 into 2.67 and round(0.5) into 0, so displayed totals disagree with the invoice"
+      - "pages = total // page_size + 1 adds an empty trailing page whenever total is an exact multiple of page_size"
+      - "minutes_late = delta_seconds // 60 reports -1 for a train that arrived 30 seconds early"
+    feature_patterns:
+      - "Add a configurable rounding rule (half-up to cents) for displayed totals"
+    beacons:
+      - "== between floats, or money stored in float variables"
+      - "round(), int() or // applied to values that can be negative or end in .5"
+
+  - id: string-handling
+    name: String handling pitfalls
+    region: core
+    tier: 1
+    summary: "strip/lstrip/rstrip remove a *set of characters*, not a substring; split() and split(' ') treat whitespace runs differently; strings are immutable so methods return new strings."
+    prereqs: []
+    bug_patterns:
+      - "filename.rstrip('.csv') turns 'metrics.csv' into 'metri' — rstrip removes any trailing '.', 'c', 's' or 'v' (removesuffix was meant)"
+      - "line.split(' ') on text with double spaces yields empty fields, shifting every later column in a parser"
+      - "sku.strip() / name.replace('-', '') called as a statement without assigning the result, so the value never changes"
+      - "if 'id' in field_name: a substring test that also matches 'paid' and 'valid_until'"
+    feature_patterns:
+      - "Add a slug / normalized-key generator for user-entered titles"
+      - "Support a new delimited text format in an import tool"
+    beacons:
+      - "strip/lstrip/rstrip called with a multi-character argument"
+      - "str methods called as statements whose return value is discarded"
+
+  - id: unicode-and-bytes
+    name: Unicode, bytes & normalization
+    region: core
+    tier: 2
+    summary: "str and bytes are different types; the same visible text can have different code points (NFC vs NFD), and lower() is not full case-insensitive matching (casefold() is)."
+    prereqs: [string-handling]
+    bug_patterns:
+      - "a name typed on macOS (decomposed, NFD) doesn't match the same name stored from a web form (NFC), creating duplicate customers"
+      - "len(message) enforces a 160-character limit but the gateway limit is in UTF-8 bytes, so emoji-heavy messages are rejected"
+      - "'STRASSE'.lower() != 'straße'.lower(), so a case-insensitive lookup misses German street names; casefold() handles it"
+      - "bytes read from a file are decoded as latin-1 instead of utf-8, producing mojibake in exported reports"
+    feature_patterns:
+      - "Make username or email lookups case- and accent-insensitive"
+      - "Truncate text to a byte budget without splitting a multi-byte character"
+    beacons:
+      - ".encode()/.decode() calls, or len() used to enforce a size limit"
+      - "string keys compared across data sources (user input vs stored data)"
+
+  - id: slicing-off-by-one
+    name: Slicing, ranges & off-by-one
+    region: core
+    tier: 1
+    summary: "Ranges and slices are half-open [start, stop) — most off-by-one bugs come from mixing inclusive and exclusive ends."
+    prereqs: []
+    bug_patterns:
+      - "for i in range(1, len(items)): silently skips the first item"
+      - "recent = events[-n:] returns the whole list when n == 0 instead of nothing"
+      - "a paging helper returns rows[start:start + size - 1], dropping the last row of every page"
+      - "one function treats a date range as inclusive and another as exclusive, so the boundary day is double-counted"
+    feature_patterns:
+      - "Add 'last N items' or windowed views to a report"
+    beacons:
+      - "range(1, ...) or len(x) - 1 in loop bounds"
+      - "- 1 or + 1 near slice indices or range ends"
+
+  - id: args-kwargs
+    name: Function arguments (*args, **kwargs, keyword-only)
+    region: core
+    tier: 2
+    summary: "Positional arguments bind by position, so long signatures invite swapped arguments; keyword-only parameters and careful **kwargs forwarding prevent silent mix-ups."
+    prereqs: []
+    bug_patterns:
+      - "reserve(room_id, end, start) — two same-typed positional arguments swapped at one call site; nothing errors, results are wrong"
+      - "a wrapper forwards *args but forgets **kwargs, so callers' timeout=... is silently dropped"
+      - "a new parameter inserted in the middle of a signature shifts the meaning of every existing positional call"
+      - "def configure(**options) swallows a misspelled keyword (retires=3) instead of raising TypeError"
+    feature_patterns:
+      - "Add an optional parameter to a widely-called function without breaking existing callers"
+    beacons:
+      - "functions with four or more positional parameters of the same type"
+      - "wrappers taking *args/**kwargs that pass them on to another call"
+
+  - id: exception-handling
+    name: Exception handling
+    region: core
+    tier: 1
+    summary: "Catch the narrowest exception you can actually handle, where you can handle it — broad excepts hide bugs, handler order matters, and a return inside finally swallows the exception."
+    prereqs: []
+    bug_patterns:
+      - "try: row = parse(line) except Exception: continue silently drops malformed records, so totals come out low with no error"
+      - "except ValueError is listed before except UnicodeDecodeError (a ValueError subclass), so the specific handler never runs"
+      - "a return statement inside finally discards the exception raised in try, so a failed save reports success"
+      - "a bare except: in a worker loop also catches KeyboardInterrupt and SystemExit, making the worker impossible to stop"
+    feature_patterns:
+      - "Add a 'skipped rows' report to an importer instead of silently ignoring bad input"
+    beacons:
+      - "except Exception / bare except followed by pass, continue or a lone log line"
+      - "return or break inside a finally block"
+
+  - id: exception-chaining
+    name: Custom exceptions & chaining
+    region: core
+    tier: 2
+    summary: "Domain-specific exception classes make failures catchable by meaning, and `raise NewError(...) from err` keeps the root cause attached instead of hiding it."
+    prereqs: [exception-handling]
+    bug_patterns:
+      - "except KeyError: raise OrderNotFound(order_id) without `from err`, so logs point at the wrong frame and the real cause is lost"
+      - "a custom error inherits from BaseException instead of Exception and escapes the service's error-handling middleware"
+      - "an API layer catches a library's base error and re-raises a generic 500, so validation failures look like outages"
+    feature_patterns:
+      - "Introduce a typed error hierarchy so the API can map domain errors to specific status codes"
+    beacons:
+      - "raise inside an except block — check for `from`"
+      - "an errors.py / exceptions.py module defining the codebase's exception tree"
+
+  - id: iterators-generators
+    name: Iterators & generators
+    region: core
+    tier: 2
+    summary: "Generators are lazy and single-use — a second pass yields nothing, and the body doesn't run at all until someone consumes it."
+    prereqs: [comprehensions]
+    bug_patterns:
+      - "rows = (parse(l) for l in lines); total = sum(r.amount for r in rows); count = len(list(rows)) — count is always 0"
+      - "a function refactored to yield its results stops performing its side effects because callers never iterate the result"
+      - "a generator over a file is returned from inside `with open(...)`; by the time it's consumed the file is closed"
+      - "a map()/filter()/zip() object is handed to two consumers and the second one sees an exhausted iterator"
+    feature_patterns:
+      - "Stream a large export row by row instead of building the whole list in memory"
+    beacons:
+      - "yield, generator expressions in parentheses, map/filter/zip results stored in variables"
+      - "the same iterable variable looped over twice"
+
+  - id: comprehensions
+    name: Comprehensions
+    region: core
+    tier: 1
+    summary: "Comprehensions read left-to-right like nested for loops, and where the condition sits decides whether it filters items or transforms them."
+    prereqs: []
+    bug_patterns:
+      - "[grid[r][c] for c in range(width) for r in range(height)] has its for clauses swapped and flattens the grid column-major instead of row-major"
+      - "[x if valid(x) else None for x in xs] is written where [x for x in xs if valid(x)] was intended, so None values flow downstream"
+      - "{item.sku: item for item in items} silently keeps only the last item per SKU, dropping duplicates from the count"
+    feature_patterns:
+      - "Add a filtered summary view built from an existing collection"
+    beacons:
+      - "multiple for clauses in one comprehension"
+      - "dict comprehensions keyed by a field that may not be unique"
+
+  - id: sorting-keys
+    name: Sorting (keys, stability, in-place)
+    region: core
+    tier: 1
+    summary: "sorted() returns a new list while list.sort() sorts in place and returns None; the key function decides the order, and the sort is stable so multi-key sorts can be layered."
+    prereqs: []
+    bug_patterns:
+      - "items = items.sort(key=by_date) sets items to None and the next line fails with 'NoneType' object is not iterable"
+      - "version strings or numeric IDs sorted as text: '10' < '9', so release v10 is listed before v9"
+      - "sorted(tasks, key=lambda t: (t.priority, t.created_at), reverse=True) also reverses the date tie-breaker"
+      - "sorting by a field that can be None raises TypeError: '<' not supported between instances of 'NoneType' and 'int'"
+    feature_patterns:
+      - "Add a configurable multi-column sort to a listing or report"
+    beacons:
+      - "assignment from .sort(...)"
+      - "sort keys that are digit strings, or tuple keys combined with reverse=True"
+
+  - id: dict-semantics
+    name: Dictionary behavior
+    region: core
+    tier: 1
+    summary: "Dicts preserve insertion order, dict.get(k, default) never stores the default, and you can't add or remove keys while iterating over a dict."
+    prereqs: []
+    bug_patterns:
+      - "for key in sessions: if expired(key): del sessions[key] raises RuntimeError: dictionary changed size during iteration"
+      - "groups.get(key, []).append(item) appends to a temporary list that is never stored, so every group stays empty"
+      - "settings = {**overrides, **defaults} lets the defaults win over the user's overrides"
+      - "config.update(file_config) replaces an entire nested section instead of merging it, wiping unrelated keys"
+    feature_patterns:
+      - "Add layered settings (defaults < file < environment) with an explicit merge order"
+    beacons:
+      - "del or pop inside a loop over the same dict"
+      - ".get(key, []) or .get(key, {}) followed by a mutation"
+
+  - id: set-semantics
+    name: Set behavior
+    region: core
+    tier: 1
+    summary: "Sets give O(1) membership and deduplication, but they're unordered and hold only hashable values — iterating a set gives no reliable order."
+    prereqs: []
+    bug_patterns:
+      - "list(set(items)) is used to dedupe, scrambling the order the UI and tests relied on"
+      - "set(active_ids) - set(banned_ids) where one side holds ints and the other strings, so nobody is ever removed"
+      - "adding dict records to a set raises TypeError: unhashable type: 'dict'"
+    feature_patterns:
+      - "Add 'what changed' diffs between two snapshots (added / removed / unchanged) using set operations"
+    beacons:
+      - "list(set(...)) or iteration over a set whose order is later relied on"
+      - "set operations between collections built from different sources"
+
+  - id: imports-and-modules
+    name: Imports & module state
+    region: core
+    tier: 2
+    summary: "A module executes once on first import, `from x import y` copies a binding at import time, and circular imports fail when a half-initialized module is used."
+    prereqs: [names-and-binding]
+    bug_patterns:
+      - "from settings import TIMEOUT captures the value at import; code that later updates settings.TIMEOUT has no effect on this module"
+      - "a test patches notifications.send_email, but billing did `from notifications import send_email`, so real emails still 'send'"
+      - "two modules import each other at top level; `from billing import Invoice` fails with ImportError: cannot import name ... partially initialized module"
+      - "a module reads environment variables at import time, so tests that set them afterwards see stale configuration"
+    feature_patterns:
+      - "Split a large module into a package without breaking existing imports"
+    beacons:
+      - "`from module import name` for mutable state or for functions that tests patch"
+      - "work done at module top level: reading env vars, opening connections, building registries"
+
+  - id: pattern-matching
+    name: Structural pattern matching
+    region: core
+    tier: 2
+    summary: "In match/case a bare name is a capture pattern that matches anything and rebinds it — compare against constants with dotted names (Status.ACTIVE) or literals."
+    prereqs: [names-and-binding]
+    bug_patterns:
+      - "a final `case ARCHIVED:` meant to compare with a module constant is a capture pattern, so every unmatched value is treated as archived"
+      - "case {'type': 'refund'}: also matches payloads with extra keys, so partial refunds hit the full-refund branch"
+      - "case [first, *rest]: sits above a more specific case, so the specific case is never reached"
+    feature_patterns:
+      - "Add a new command or event type to a match-based dispatcher"
+    beacons:
+      - "match statements whose case patterns are bare UPPER_CASE names"
+      - "general patterns placed above specific ones"
+
+  # ----------------------------------------------------------- datamodel ----
+  - id: hash-eq-contract
+    name: The __eq__ / __hash__ contract
+    region: datamodel
+    tier: 2
+    summary: "Objects that compare equal must hash equal, and a hash must not change while the object sits in a set or dict — defining __eq__ alone sets __hash__ to None."
+    prereqs: [set-semantics, dict-semantics, equality-identity]
+    bug_patterns:
+      - "a class gains an __eq__ method and instances suddenly raise TypeError: unhashable type when added to a set"
+      - "an object is used as a dict key, then a field that feeds its hash is mutated; lookups miss and the dict holds a ghost entry"
+      - "__hash__ uses the raw email while __eq__ compares the lowercased email, so duplicate customers survive set-based dedup"
+    feature_patterns:
+      - "Make domain value objects usable as dict keys and set members for deduplication"
+    beacons:
+      - "classes defining __eq__ (check __hash__), dataclasses with eq/frozen/unsafe_hash"
+      - "mutable objects used as dict keys or set members"
+
+  - id: class-vs-instance-attributes
+    name: Class vs instance attributes
+    region: datamodel
+    tier: 1
+    summary: "Attributes assigned in the class body are shared by all instances — mutating a class-level list or dict through one instance changes it for every instance."
+    prereqs: [names-and-binding]
+    bug_patterns:
+      - "class Cart: items = [] — every Cart shares one list, so customers see each other's products"
+      - "a class-level cache = {} meant to be per-client leaks results between tenants"
+      - "self.count += 1 against a class attribute creates an instance attribute, so the shared counter never moves"
+    feature_patterns:
+      - "Add per-instance history or an audit trail to an existing class"
+    beacons:
+      - "mutable literals ([], {}, set()) assigned in a class body"
+      - "instances mutating attributes that are never set in __init__"
+
+  - id: properties-cached
+    name: Properties & cached_property
+    region: datamodel
+    tier: 2
+    summary: "@property turns attribute access into a method call; @cached_property computes once per instance and goes stale when the inputs change."
+    prereqs: [class-vs-instance-attributes]
+    bug_patterns:
+      - "the price setter assigns self.price = value inside the price property itself, recursing until RecursionError"
+      - "@cached_property total is read before line items are added and keeps returning the stale total"
+      - "an expensive @property is read inside a loop, hiding an O(n^2) cost behind what looks like a cheap attribute"
+      - "a validating property exists, but __init__ writes the private _field directly and bypasses the validation"
+    feature_patterns:
+      - "Add a computed attribute with validation on assignment"
+      - "Cache an expensive derived value with correct invalidation"
+    beacons:
+      - "@property / @x.setter / @cached_property decorators"
+      - "attribute reads inside hot loops that are really method calls"
+
+  - id: descriptors
+    name: Descriptors & attribute lookup
+    region: datamodel
+    tier: 3
+    summary: "Descriptors (__get__/__set__/__set_name__) power properties, methods and ORMs; data descriptors beat the instance __dict__, non-data descriptors lose to it, and state stored on the descriptor is shared by every instance."
+    prereqs: [properties-cached, class-vs-instance-attributes]
+    bug_patterns:
+      - "a validating descriptor stores the value on itself (self.value = v) instead of on the instance, so all objects share one value"
+      - "a non-data descriptor (only __get__) is shadowed after an instance attribute with the same name is assigned"
+      - "__getattr__ is implemented to proxy attributes but accidentally references a missing attribute, recursing forever"
+    feature_patterns:
+      - "Add a reusable typed/validated field descriptor used across several model classes"
+    beacons:
+      - "classes defining __get__, __set__, __set_name__ used as class attributes"
+      - "__getattr__ / __getattribute__ overrides"
+
+  - id: inheritance-super-mro
+    name: Inheritance, super() & MRO
+    region: datamodel
+    tier: 2
+    summary: "super() follows the method resolution order, not 'the parent', and overriding a method changes behavior everywhere the base class calls it."
+    prereqs: [class-vs-instance-attributes]
+    bug_patterns:
+      - "a subclass __init__ forgets super().__init__(), so base-class attributes are missing and AttributeError appears later"
+      - "the base __init__ calls self.validate(), and a subclass override reads attributes the subclass hasn't set yet"
+      - "a subclass overrides save() with a different signature, so generic code calling save(commit=False) breaks only for that subclass"
+      - "mixin order in the class statement changes which method wins, so the retry wrapper runs outside the logging wrapper"
+    feature_patterns:
+      - "Add a new variant (exporter, notifier, pricing rule) by subclassing an existing base"
+    beacons:
+      - "class hierarchies with overridden methods, super() calls, multiple base classes"
+      - "base-class methods that call methods subclasses may override (template method)"
+
+  - id: dunder-protocols
+    name: Container & truthiness protocols
+    region: datamodel
+    tier: 2
+    summary: "__len__, __iter__, __contains__, __getitem__ and __bool__ let objects act like built-ins — and bool() falls back to __len__, so an empty container object is falsy."
+    prereqs: [truthiness-none, class-vs-instance-attributes]
+    bug_patterns:
+      - "if batch: skips a Batch whose __len__ is 0 even though its metadata still has to be flushed"
+      - "__contains__ is implemented as a linear scan, so `in` checks inside a loop make the job quadratic"
+      - "__iter__ returns self (an iterator), so the collection can be iterated only once"
+      - "__getitem__ raises KeyError for out-of-range positions, so the legacy iteration fallback crashes instead of stopping"
+    feature_patterns:
+      - "Make a domain collection class iterable, sized and support membership tests"
+    beacons:
+      - "classes defining __len__, __iter__, __contains__, __getitem__ or __bool__"
+      - "`if obj:` applied to a custom collection object"
+
+  - id: ordering-dunders
+    name: Ordering methods & total_ordering
+    region: datamodel
+    tier: 2
+    summary: "Rich comparisons must be consistent with each other and with __eq__, and should return NotImplemented for unknown types rather than False."
+    prereqs: [hash-eq-contract, sorting-keys]
+    bug_patterns:
+      - "__lt__ compares priority while __eq__ compares id, so sorted() and heapq produce inconsistent, surprising orders"
+      - "__eq__ returns False for foreign types instead of NotImplemented, breaking comparisons against proxies and mocks"
+      - "@total_ordering with a __lt__ that isn't a strict weak ordering makes sorted() output depend on input order"
+    feature_patterns:
+      - "Make version or priority objects sortable and comparable"
+    beacons:
+      - "__lt__/__le__/__gt__ definitions and @functools.total_ordering"
+      - "custom objects pushed onto heaps or sorted without a key function"
+
+  - id: dataclasses
+    name: Dataclasses
+    region: datamodel
+    tier: 1
+    summary: "@dataclass generates __init__/__repr__/__eq__; mutable defaults need field(default_factory=...), frozen=True makes instances immutable and hashable, and __post_init__ runs after the generated __init__."
+    prereqs: [mutable-defaults, class-vs-instance-attributes]
+    bug_patterns:
+      - "a field defaults to a shared object instance (default=DEFAULT_POLICY), so every record mutates the same policy object"
+      - "__post_init__ normalizes self.email on a frozen dataclass and raises FrozenInstanceError (object.__setattr__ was needed)"
+      - "a mutable dataclass with the default eq=True is used as a dict key and raises TypeError: unhashable type"
+      - "a created_at field isn't marked field(compare=False), so two otherwise identical events never compare equal"
+    feature_patterns:
+      - "Add a new field with a sensible default to a widely constructed dataclass"
+      - "Add validation or normalization in __post_init__"
+    beacons:
+      - "@dataclass(...) decorators and field(...) specifications"
+      - "dataclasses.replace(), asdict(), frozen=True"
+
+  - id: enums
+    name: Enums
+    region: datamodel
+    tier: 1
+    summary: "Plain Enum members never equal their raw values (Status.PAID != 'paid'); convert at the boundary with Status(value), or use StrEnum/IntEnum when raw comparison is intended."
+    prereqs: []
+    bug_patterns:
+      - "if order.status == 'paid': is always False because status holds Status.PAID, a plain Enum member"
+      - "a report writes str(member) and exports 'Status.PAID' instead of 'paid'"
+      - "Flag permissions checked with == instead of `in` / &, so a user holding READ | WRITE fails a READ check"
+    feature_patterns:
+      - "Add a new state or status value and handle it everywhere the enum is switched on"
+    beacons:
+      - "class X(Enum) / StrEnum / IntEnum / Flag definitions"
+      - "comparisons between enum-typed fields and string or int literals"
+
+  - id: type-hints
+    name: Type hints (Optional, generics, Protocol, TypedDict)
+    region: datamodel
+    tier: 2
+    summary: "Type hints document intent and power static checkers, but Python ignores them at runtime — an Optional[X] return is a promise every caller must handle None."
+    prereqs: [truthiness-none]
+    bug_patterns:
+      - "find_user() -> User | None returns None for unknown IDs, and a caller chains .email and crashes with AttributeError: 'NoneType'"
+      - "a function annotated -> list[str] actually returns a generator, and callers use len() and indexing on it"
+      - "a TypedDict is assumed to validate data, but malformed dicts from JSON pass straight through at runtime"
+    feature_patterns:
+      - "Introduce a Protocol so a new storage backend (memory, file, sqlite) can be swapped in"
+    beacons:
+      - "Optional[...] / X | None return types"
+      - "Protocol, TypeVar, Generic and TypedDict definitions"
+
+  - id: context-managers
+    name: Context managers & cleanup
+    region: datamodel
+    tier: 2
+    summary: "`with` guarantees cleanup via __exit__; an __exit__ that returns True swallows the exception, and a @contextmanager generator needs try/finally or its cleanup is skipped on errors."
+    prereqs: [exception-handling]
+    bug_patterns:
+      - "@contextmanager def transaction(): begin(); yield; commit() — an exception in the block skips rollback and leaves the lock held"
+      - "__exit__ returns True unconditionally, silently swallowing every error raised inside the with block"
+      - "open() without `with` inside a loop leaks file handles until 'Too many open files'"
+      - "a temporary-override context manager doesn't restore the old value when its body raises"
+    feature_patterns:
+      - "Add a timing/metrics context manager around critical sections"
+      - "Add a temporary override (flag, config value) usable from tests"
+    beacons:
+      - "@contextmanager functions — look for try/finally around the yield"
+      - "__enter__/__exit__ implementations and what __exit__ returns"
+
+  - id: decorators
+    name: Decorators
+    region: datamodel
+    tier: 2
+    summary: "A decorator replaces your function at definition time — keep its identity with functools.wraps, and remember decorator arguments are evaluated once, at import."
+    prereqs: [scope-legb]
+    bug_patterns:
+      - "a timing decorator without functools.wraps makes every handler named 'wrapper', breaking a registry keyed by __name__"
+      - "@cache_for(seconds=settings.CACHE_TTL) reads the setting at import time, so changing it at runtime has no effect"
+      - "a decorator written for @retry(times=3) is applied bare as @retry, so the function is passed as `times` and never runs"
+      - "a logging decorator forgets to return the wrapped function's result, so every decorated call returns None"
+    feature_patterns:
+      - "Add an audit, timing or permission-check decorator and apply it to existing handlers"
+    beacons:
+      - "nested def wrapper(*args, **kwargs) patterns; @decorator(...) with arguments"
+      - "registries populated by decorators"
+
+  - id: metaprogramming
+    name: Metaprogramming & registries
+    region: datamodel
+    tier: 3
+    summary: "Class decorators, __init_subclass__ and metaclasses run at class-creation (import) time — a registry they build only contains classes whose modules were actually imported."
+    prereqs: [decorators, inheritance-super-mro, imports-and-modules]
+    bug_patterns:
+      - "a plugin registry filled by __init_subclass__ is keyed by cls.__name__, so two plugins named CsvExporter in different packages overwrite each other"
+      - "a new handler class never registers because nothing imports its module"
+      - "__init_subclass__ doesn't call super().__init_subclass__(**kwargs), silently breaking a second mixin's registration"
+    feature_patterns:
+      - "Add a new plugin type that registers itself and is discoverable by name"
+    beacons:
+      - "__init_subclass__, metaclass=..., class decorators, module-level REGISTRY dicts"
+      - "getattr/setattr/type() used to build or look up classes dynamically"
+
+  - id: object-lifecycle-memory
+    name: Object lifetime, references & memory
+    region: datamodel
+    tier: 3
+    summary: "Objects live as long as something references them — module-level caches, registered callbacks and bound methods keep memory alive; weakref lets you observe without owning."
+    prereqs: [class-vs-instance-attributes]
+    bug_patterns:
+      - "a module-level dict caches every processed request by ID and grows without bound until the worker is OOM-killed"
+      - "an event bus stores bound methods of subscribers, so closed sessions are never garbage collected"
+      - "an object that releases a lock in __del__ sits in a reference cycle, so the lock is only released whenever the cyclic garbage collector eventually runs"
+    feature_patterns:
+      - "Add a bounded or weakly referenced cache for expensive objects"
+    beacons:
+      - "module-level dicts or lists that only ever grow"
+      - "listener/observer registration without unregistration; __del__ methods"
+
+  - id: eafp-vs-lbyl
+    name: EAFP vs LBYL
+    region: datamodel
+    tier: 2
+    summary: "Python favors 'easier to ask forgiveness' (try the operation, catch the specific error) over 'look before you leap' checks, which can race or duplicate work — but keep the try block tight."
+    prereqs: [exception-handling, dict-semantics]
+    bug_patterns:
+      - "if os.path.exists(path): os.remove(path) races with another worker deleting the same file, raising FileNotFoundError"
+      - "if key in cache: return cache[key] in a threaded cache, where eviction between the check and the read raises KeyError"
+      - "try: result = compute(data[key]) except KeyError: also swallows a KeyError raised deep inside compute(), masking a real bug"
+    feature_patterns: []
+    beacons:
+      - "an existence check immediately followed by the operation (exists then remove, in then getitem)"
+      - "try blocks that wrap much more code than the one operation expected to fail"
+
+  # -------------------------------------------------------------- stdlib ----
+  - id: defaultdict-counter
+    name: defaultdict & Counter
+    region: stdlib
+    tier: 1
+    summary: "defaultdict inserts missing keys on *read* (d[k] creates k), and Counter drops zero/negative counts in some operations (c1 - c2) but keeps them in others (.subtract())."
+    prereqs: [dict-semantics]
+    bug_patterns:
+      - "if visits[user_id] > 0: on a defaultdict(int) inserts every user it checks, so 'active users' ends up containing everyone queried"
+      - "remaining = stock - reserved with Counter subtraction drops items that went negative, hiding oversold inventory"
+      - "Counter.most_common(1) picks a 'winner' when counts are tied, so the result depends on insertion order"
+      - "a defaultdict(list) is serialized after lookups and the API response now contains empty lists for keys that shouldn't exist"
+    feature_patterns:
+      - "Add a frequency / top-N report with ties handled explicitly"
+    beacons:
+      - "defaultdict(...) where later code relies on `key in d` or len(d)"
+      - "Counter arithmetic (+, -, &, |) versus .update() / .subtract()"
+
+  - id: deque
+    name: collections.deque
+    region: stdlib
+    tier: 2
+    summary: "deque gives O(1) appends and pops at both ends (list.pop(0) is O(n)), and deque(maxlen=n) silently discards from the opposite end when full."
+    prereqs: [ds-lists-arrays]
+    bug_patterns:
+      - "a job backlog processed with list.pop(0) turns quadratic as the backlog grows past a few hundred thousand items"
+      - "history = deque(maxlen=100) silently drops the oldest events, so an audit trail loses entries without any warning"
+      - "new items go in with appendleft() but are consumed with pop(), turning FIFO processing into LIFO"
+    feature_patterns:
+      - "Add a 'last N events' buffer to a monitor, chat room or activity feed"
+    beacons:
+      - "list.pop(0) or list.insert(0, x) inside a loop"
+      - "deque(maxlen=...) and which end is appended vs popped"
+
+  - id: namedtuple-ordereddict-chainmap
+    name: namedtuple, OrderedDict & ChainMap
+    region: stdlib
+    tier: 2
+    summary: "namedtuples are immutable tuples whose field order matters for unpacking, OrderedDict adds move_to_end/popitem(last=...), and ChainMap writes only to its first mapping."
+    prereqs: [dict-semantics]
+    bug_patterns:
+      - "a namedtuple gains a field in the middle, and every `sku, qty, price = line` unpacking silently shifts values"
+      - "ChainMap(defaults, user_prefs) is built in the wrong order, so reads prefer defaults and writes overwrite the global defaults"
+      - "OrderedDict.popitem() is called without last=False, evicting the newest entry instead of the oldest"
+    feature_patterns:
+      - "Add scoped lookups (local, then session, then global) with ChainMap"
+    beacons:
+      - "namedtuple / NamedTuple definitions and positional unpacking of records"
+      - "ChainMap construction order; OrderedDict.popitem / move_to_end"
+
+  - id: itertools
+    name: itertools
+    region: stdlib
+    tier: 2
+    summary: "itertools builds lazy iterator pipelines; groupby only groups *consecutive* equal keys (sort first), and islice/tee consume the underlying iterator."
+    prereqs: [iterators-generators]
+    bug_patterns:
+      - "groupby(orders, key=lambda o: o.customer_id) on unsorted input yields several groups per customer, double-counting in a report"
+      - "a groupby group iterator is saved and read after moving on to the next group, and it yields nothing"
+      - "islice(stream, 10) for a preview consumes those ten records, so the main processing loop skips them"
+      - "zip(names, amounts) silently truncates to the shorter list where zip(..., strict=True) should have raised"
+    feature_patterns:
+      - "Batch records into fixed-size chunks (itertools.batched) for bulk writes"
+      - "Detect gaps or jumps in a series with itertools.pairwise"
+    beacons:
+      - "itertools.groupby — check the input is sorted by the same key"
+      - "zip over sequences that are supposed to have equal length"
+
+  - id: functools
+    name: functools (lru_cache, partial, reduce, singledispatch)
+    region: stdlib
+    tier: 2
+    summary: "lru_cache memoizes by argument hash — arguments must be hashable, cached objects stay alive (including self on methods), and every caller receives the same mutable result."
+    prereqs: [decorators, hash-eq-contract]
+    bug_patterns:
+      - "@lru_cache on a function returning a list; one caller appends to it and every later caller sees the modified cached list"
+      - "@lru_cache on an instance method keeps every instance alive for the life of the process (self is part of the key)"
+      - "@lru_cache on get_exchange_rate(currency) serves yesterday's rate forever because nothing ever expires it"
+      - "send_urgent = partial(send, retries=3) is later called as send_urgent(msg, 5), raising TypeError: got multiple values for argument 'retries'"
+    feature_patterns:
+      - "Memoize an expensive pure function, with a way to clear the cache"
+      - "Add per-type formatting via functools.singledispatch"
+    beacons:
+      - "@lru_cache / @cache — check argument hashability, return mutability and staleness"
+      - "functools.partial objects passed around as callbacks"
+
+  - id: heapq-bisect
+    name: heapq & bisect
+    region: stdlib
+    tier: 2
+    summary: "heapq is a min-heap over a plain list (negate keys for max-first), tuple entries compare element by element (add a tie-breaker), and bisect_left/bisect_right differ exactly on equal elements."
+    prereqs: [sorting-keys, algo-binary-search]
+    bug_patterns:
+      - "heappush(queue, (priority, job)) raises TypeError when two jobs share a priority and Job objects aren't comparable"
+      - "a 'most urgent first' scheduler pushes raw priority numbers and always processes the least urgent job first"
+      - "bisect_right is used to find the tier for a value exactly equal to a threshold, putting boundary customers in the wrong bracket"
+      - "items are append()ed to a heapified list, breaking the heap invariant so heappop returns the wrong element"
+    feature_patterns:
+      - "Add top-K or next-N-due queries backed by a heap"
+      - "Add bracket/tier lookup with bisect over sorted thresholds"
+    beacons:
+      - "heapq.heappush / heappop with tuple entries"
+      - "bisect_left / bisect_right / insort on sorted lists"
+
+  - id: datetime-timezones
+    name: datetime & time zones
+    region: stdlib
+    tier: 2
+    summary: "Naive and aware datetimes don't mix, wall-clock arithmetic across DST gives 23- or 25-hour days, and 'today' depends on whose time zone you ask."
+    prereqs: []
+    bug_patterns:
+      - "comparing a naive datetime from a CSV with an aware one from the API raises TypeError: can't compare offset-naive and offset-aware datetimes"
+      - "a reminder scheduled as local_dt + timedelta(hours=24) fires an hour early or late the day DST changes"
+      - "date.today() on a UTC server assigns late-evening Pacific orders to tomorrow's sales report"
+      - "datetime.utcnow() returns a naive value that other code later treats as local time, shifting timestamps by the UTC offset"
+    feature_patterns:
+      - "Show each user's schedule in their own time zone"
+      - "Add recurring events that keep the same local wall-clock time across DST"
+    beacons:
+      - "datetime.now() / utcnow() / date.today() calls, tzinfo=None, replace(tzinfo=...)"
+      - "timedelta arithmetic on local times; ZoneInfo usage"
+
+  - id: regex
+    name: Regular expressions (re)
+    region: stdlib
+    tier: 2
+    summary: "re.match anchors only at the start, re.fullmatch at both ends, `$` also matches before a trailing newline, and quantifiers are greedy unless you add `?`."
+    prereqs: [string-handling]
+    bug_patterns:
+      - "re.match(r'[A-Z]{3}-[0-9]{4}', code) accepts 'ABC-1234-junk' because match() doesn't anchor the end (fullmatch was needed)"
+      - "a greedy <.*> in an HTML-stripping regex eats everything between the first < and the last > on the line"
+      - "a pattern with a nested quantifier like (a+)+$ backtracks catastrophically on a long non-matching input, pinning a CPU"
+      - "a dot in a domain pattern isn't escaped, so 'examplexcom' passes an allowlist meant for 'example.com'"
+    feature_patterns:
+      - "Parse a new log-line or identifier format with named groups"
+    beacons:
+      - "re.match vs re.search vs re.fullmatch; ^ and $ anchors; re.MULTILINE"
+      - "unescaped '.', nested quantifiers, and .* inside patterns"
+
+  - id: json-serialization
+    name: JSON serialization
+    region: stdlib
+    tier: 1
+    summary: "JSON only has strings, numbers, booleans, null, arrays and objects — int dict keys come back as strings, tuples come back as lists, and datetimes need an explicit encoding."
+    prereqs: [dict-semantics]
+    bug_patterns:
+      - "a cache round-trips {42: 'ok'} through JSON and later lookups with the int key 42 miss because the key is now '42'"
+      - "json.dumps(event) raises TypeError: Object of type datetime is not JSON serializable the first time an event has a timestamp"
+      - "a tuple of coordinates is stored as JSON, comes back as a list, and fails an equality check or a set lookup"
+      - "float('nan') is written as NaN, which strict JSON parsers in other services reject"
+    feature_patterns:
+      - "Add export/import of domain objects to JSON with a stable schema"
+    beacons:
+      - "json.dumps/json.loads around dicts with non-string keys, tuples, datetimes, Decimals or sets"
+      - "a default= or custom JSONEncoder hook"
+
+  - id: csv-and-file-io
+    name: CSV & file I/O
+    region: stdlib
+    tier: 1
+    summary: "Open CSV files with newline='' and an explicit encoding, expect a BOM from spreadsheet exports ('utf-8-sig'), and stream rows instead of reading whole files into memory."
+    prereqs: [string-handling]
+    bug_patterns:
+      - "a CSV exported from Excel starts with a byte-order mark, so the first header is not 'id' and row['id'] raises KeyError"
+      - "quoted fields containing newlines are split into broken rows because the file was opened without newline=''"
+      - "csv.reader returns the header as its first row, and the import counts it as a data row, so every row count is off by one"
+      - "f.read().splitlines() loads a 4 GB export into memory and the job is killed"
+    feature_patterns:
+      - "Add an import command that reports rejected rows with line numbers"
+    beacons:
+      - "open() calls without encoding= or newline=''; csv.reader vs csv.DictReader"
+      - "f.read() / readlines() on potentially large files"
+
+  - id: pathlib-os
+    name: pathlib, os & temp files
+    region: stdlib
+    tier: 2
+    summary: "Joining an absolute segment discards everything before it, relative paths depend on the current working directory, and temp files need cleanup and unique names."
+    prereqs: [string-handling]
+    bug_patterns:
+      - "Path(UPLOAD_ROOT) / user_filename returns '/etc/passwd' when the user supplies an absolute path"
+      - "open('templates/invoice.html') works from the repo root but fails when the job runs from another directory"
+      - "a fixed temp filename /tmp/export.csv is shared by concurrent jobs, so they overwrite each other's output"
+      - "path.glob('*.json') is used where rglob was needed, so nested exports are silently skipped"
+    feature_patterns:
+      - "Add an archive command that moves processed files into dated subfolders"
+    beacons:
+      - "string concatenation or os.path.join / Path '/' with user-provided segments"
+      - "relative paths in open() calls; hard-coded temp file names"
+
+  - id: logging
+    name: logging
+    region: stdlib
+    tier: 2
+    summary: "Use module loggers with lazy %-style arguments, log exceptions with logger.exception or exc_info, and remember basicConfig does nothing once handlers exist and records propagate to ancestors."
+    prereqs: [exception-handling]
+    bug_patterns:
+      - "logger.debug(f'state: {expensive_dump()}') runs the expensive dump on every call even with DEBUG disabled"
+      - "a handler added to a module logger plus propagation to root prints every line twice"
+      - "logger.error(err) inside except loses the traceback; logger.exception(...) was needed"
+      - "logging.basicConfig(level=DEBUG) in main() has no effect because an imported library already configured the root logger"
+    feature_patterns:
+      - "Add structured, contextual logging (request id, user id) to a request path"
+    beacons:
+      - "f-strings or % formatting inside logger calls; logger.error inside except blocks"
+      - "addHandler / basicConfig / propagate settings"
+
+  - id: argparse
+    name: argparse & command-line parsing
+    region: stdlib
+    tier: 2
+    summary: "type=bool turns any non-empty string (including 'False') into True, store_true flags default to False, and defaults are not passed through type= unless they're strings."
+    prereqs: [truthiness-none]
+    bug_patterns:
+      - "parser.add_argument('--dry-run', type=bool) makes --dry-run False evaluate to True, so a 'dry' run deletes real data"
+      - "nargs='*' with a list default shares one list between parses in a long-running process that mutates it"
+      - "a positional argument is added before an existing one, so existing scripts pass values into the wrong parameters"
+    feature_patterns:
+      - "Add a new subcommand with flags and validation to an existing CLI"
+    beacons:
+      - "type=bool, action='store_true', nargs, default= on add_argument"
+      - "subparsers and the order of positional arguments"
+
+  - id: random-seeding
+    name: random & reproducibility
+    region: stdlib
+    tier: 2
+    summary: "The random module shares one global generator — seeding it anywhere affects everyone — and it is not for secrets; use a local random.Random(seed) for reproducible simulations."
+    prereqs: []
+    bug_patterns:
+      - "a library calls random.seed(42) at import, making every 'random' shuffle in the app identical on each run"
+      - "random.sample is used where random.choices (with replacement) was intended, raising ValueError for large draws"
+      - "a simulation seeded for reproducibility still differs between runs because another module consumes the global generator"
+    feature_patterns:
+      - "Add reproducible, seedable randomness to a simulation or shuffle"
+    beacons:
+      - "random.seed(...) calls; module-level random.* use across modules"
+      - "random.sample vs random.choices vs random.shuffle"
+
+  - id: hashing-and-secrets
+    name: hashlib, hmac & secrets
+    region: stdlib
+    tier: 2
+    summary: "Hash bytes, not str; compare secrets with hmac.compare_digest; generate tokens with secrets, never random; and never hash passwords with a single fast unsalted hash."
+    prereqs: [unicode-and-bytes]
+    bug_patterns:
+      - "a webhook signature is checked with == on hex digests, leaking timing information (hmac.compare_digest was needed)"
+      - "password-reset tokens are generated with random.choice, so they're predictable from other outputs of the same generator"
+      - "a content hash is computed over str(dict), so key order and formatting changes produce different hashes for the same data"
+    feature_patterns:
+      - "Sign and verify webhook payloads with HMAC"
+      - "Add content-addressed storage keyed by SHA-256"
+    beacons:
+      - "hashlib.* calls and what exactly is being hashed; == on digests or tokens"
+      - "random used for tokens, IDs or passwords"
+
+  - id: clocks-and-uuid
+    name: Clocks, monotonic time & UUIDs
+    region: stdlib
+    tier: 2
+    summary: "time.time() is wall-clock time that can jump backwards; measure durations and timeouts with time.monotonic(), and generate identifiers with uuid4 (uuid1 leaks host and time)."
+    prereqs: [datetime-timezones]
+    bug_patterns:
+      - "a timeout computed with time.time() fires instantly (or never) after an NTP clock adjustment"
+      - "elapsed = time.time() - start is negative in the logs after a clock correction and breaks a latency histogram"
+      - "IDs generated from int(time.time() * 1000) collide when two requests arrive in the same millisecond"
+    feature_patterns:
+      - "Add request timing and elapsed-time metrics"
+    beacons:
+      - "time.time() used for durations, deadlines or ordering"
+      - "hand-rolled ID generation from timestamps or counters"
+
+  - id: struct-binary
+    name: struct & binary data
+    region: stdlib
+    tier: 3
+    summary: "Binary formats need explicit byte order and sizes ('<I' vs '>I'); struct's native mode uses platform alignment, and bytes slicing gives ints when you index a single position."
+    prereqs: [unicode-and-bytes]
+    bug_patterns:
+      - "struct.unpack('I', frame[4:8]) uses native byte order, so telemetry from a big-endian device decodes to nonsense values"
+      - "native '@' alignment adds padding, so a packed record is 12 bytes instead of the 10 the protocol specifies"
+      - "packet[0] returns an int, not a one-byte bytes object, so comparing it with b'\\x7e' is always False"
+      - "a checksum is computed over the header plus payload but the spec says payload only, so every frame is rejected"
+    feature_patterns:
+      - "Add a decoder for a new frame type in a binary protocol"
+    beacons:
+      - "struct.pack/unpack format strings (check for < > ! prefixes)"
+      - "int.from_bytes(..., byteorder), bytes indexing and slicing"
+
+  - id: unittest-mock
+    name: unittest.mock
+    region: stdlib
+    tier: 2
+    summary: "Patch where a name is looked up, not where it's defined; use autospec so mocks enforce real signatures; and remember a bare Mock is truthy and accepts any attribute."
+    prereqs: [imports-and-modules, eng-pytest]
+    bug_patterns:
+      - "patch('payments.gateway.charge') has no effect because orders.py did `from payments.gateway import charge`"
+      - "a Mock without autospec happily accepts a call with a renamed keyword, so the test passes while production crashes"
+      - "a mocked client.get returns a Mock whose .ok is truthy, so an error-handling branch is never exercised"
+      - "side_effect=[a, b] runs out on the third call and raises StopIteration from deep inside the code under test"
+    feature_patterns:
+      - "Add tests for an external integration using mocks at the right seam"
+    beacons:
+      - "patch('...') target strings; Mock/MagicMock without spec"
+      - "side_effect and return_value configuration"
+
+  - id: abc-interfaces
+    name: abc & abstract interfaces
+    region: stdlib
+    tier: 2
+    summary: "ABCs with @abstractmethod refuse to instantiate incomplete subclasses — but only if the decorator is actually present and the base really inherits from ABC."
+    prereqs: [inheritance-super-mro]
+    bug_patterns:
+      - "a base class 'interface' raises NotImplementedError instead of using @abstractmethod, so an incomplete subclass fails only in production"
+      - "@abstractmethod is used on a class that doesn't inherit from ABC, so it has no effect at all"
+      - "a subclass implements process_batch while the interface declares process_items, and the base no-op method silently runs"
+    feature_patterns:
+      - "Add a new implementation of an existing abstract interface (storage, notifier, exporter)"
+    beacons:
+      - "ABC / ABCMeta bases and @abstractmethod"
+      - "base methods that raise NotImplementedError or silently pass"
+
+  - id: subprocess
+    name: subprocess
+    region: stdlib
+    tier: 2
+    summary: "Pass argument lists instead of shell=True strings, check return codes (check=True), and use communicate() or run() instead of wait() when capturing output."
+    prereqs: [exception-handling]
+    bug_patterns:
+      - "subprocess.run(f'convert {filename} out.png', shell=True) lets a filename like 'x; rm -rf ~' run arbitrary commands"
+      - "a failed transcoder call returns exit code 1 but check=True is missing, so the job is marked done with no output file"
+      - "Popen(..., stdout=PIPE, stderr=PIPE).wait() deadlocks once the child fills the stderr pipe buffer"
+    feature_patterns:
+      - "Wrap an external command-line tool with timeouts and error reporting"
+    beacons:
+      - "shell=True, string commands built with f-strings"
+      - "Popen with PIPE followed by wait(); missing check= or timeout="
+
+  - id: decimal-money
+    name: Decimal & money arithmetic
+    region: stdlib
+    tier: 2
+    summary: "Decimal('0.10') is exact but Decimal(0.1) inherits the float's error; mixing Decimal with float raises TypeError; and quantize() uses ROUND_HALF_EVEN unless you ask for ROUND_HALF_UP."
+    prereqs: [numeric-semantics]
+    bug_patterns:
+      - "Decimal(price_float) carries 0.1000000000000000055... into invoices, so totals end in stray fractions of a cent"
+      - "tax = subtotal * 0.2 raises TypeError: unsupported operand type(s) for *: 'decimal.Decimal' and 'float'"
+      - "quantize(Decimal('0.01')) rounds 2.345 to 2.34 (half-even) while the finance team expects 2.35"
+      - "a bill is split three ways by rounding each share, and the shares no longer sum to the original total"
+    feature_patterns:
+      - "Allocate a total across N parties so the parts always sum exactly to the whole"
+      - "Add multi-currency amounts with per-currency decimal places"
+    beacons:
+      - "Decimal(...) constructed from floats; float literals mixed into money math"
+      - "quantize(...) and rounding= arguments"
+
+  # ------------------------------------------------------------------ ds ----
+  - id: ds-lists-arrays
+    name: Lists as dynamic arrays
+    region: ds
+    tier: 1
+    summary: "A list is a dynamic array: indexing and append are O(1), but `in`, remove(), insert(0, x) and pop(0) are O(n) — fine once, quadratic inside a loop."
+    prereqs: []
+    bug_patterns:
+      - "if order_id not in processed_ids: (a list) inside a loop over 200k orders makes a nightly job take hours"
+      - "a queue implemented with list.insert(0, item) slows to a crawl as it grows"
+      - "items.remove(x) removes only the first matching element, leaving duplicates behind"
+    feature_patterns:
+      - "Add a 'recently viewed' list with de-duplication and a size cap"
+    beacons:
+      - "`in` checks or .remove() on lists inside loops"
+      - "insert(0, ...) / pop(0) on lists"
+
+  - id: ds-hash-maps
+    name: Hash maps & sets for lookup
+    region: ds
+    tier: 1
+    summary: "When you look things up by key more than once, build a dict or set index first — it turns repeated O(n) scans into O(1) lookups."
+    prereqs: [dict-semantics, set-semantics]
+    bug_patterns:
+      - "for each invoice, next(c for c in customers if c.id == inv.customer_id) scans all customers — O(n*m) on a monthly run"
+      - "an index dict is built once at startup but never updated when records are added, so new records are 'not found'"
+      - "an index keyed by name instead of id silently merges two different customers with the same name"
+    feature_patterns:
+      - "Add lookup by a secondary key (email, SKU) with an index kept in sync"
+    beacons:
+      - "a linear search (next(...), for/if/break) inside another loop"
+      - "dicts named *_by_id / index / lookup"
+
+  - id: ds-stacks-queues
+    name: Stacks & queues
+    region: ds
+    tier: 1
+    summary: "Stacks (LIFO) model undo, nesting and depth-first work; queues (FIFO) model fairness and breadth-first work — using the wrong end changes behavior completely."
+    prereqs: [ds-lists-arrays]
+    bug_patterns:
+      - "an undo stack pops from the front, undoing the oldest action instead of the most recent one"
+      - "a bracket/indentation validator doesn't check that the stack is empty at the end, so unclosed blocks pass"
+      - "a support queue uses list.pop() so the newest tickets are served first and old tickets starve"
+    feature_patterns:
+      - "Add undo/redo to an editor or command processor"
+    beacons:
+      - "append/pop pairs on the same list; stack variables named history/undo/pending"
+      - "matching open/close tokens with a list"
+
+  - id: ds-heaps
+    name: Priority queues
+    region: ds
+    tier: 2
+    summary: "A heap gives O(log n) push/pop of the smallest item; updates and cancellations are usually done with lazy deletion (mark stale, skip when popped)."
+    prereqs: [heapq-bisect]
+    bug_patterns:
+      - "a task's priority is changed in place while it sits inside the heap, and the heap never reorders it"
+      - "cancelled jobs are 'removed' with list.remove() followed by nothing, breaking the heap invariant"
+      - "a lazy-deletion scheduler forgets to skip stale entries when popping, so cancelled reminders still fire"
+    feature_patterns:
+      - "Add priority escalation or cancellation to an existing job scheduler"
+    beacons:
+      - "heapq on lists of tuples; entry_finder / removed markers"
+      - "fields named priority, due_at, deadline, score"
+
+  - id: ds-trees
+    name: Trees & hierarchies
+    region: ds
+    tier: 2
+    summary: "Org charts, folders, categories and ASTs are trees — traversal order, parent pointers and cycle checks decide whether totals and moves are correct."
+    prereqs: [algo-recursion]
+    bug_patterns:
+      - "a category rollup counts products at every ancestor during a traversal, then again at the root, double-counting"
+      - "moving a folder under its own descendant isn't rejected, creating a cycle that hangs the tree walk"
+      - "a parent pointer isn't updated when a node is moved, so breadcrumbs show the old location"
+    feature_patterns:
+      - "Add subtree totals, moves, or path/breadcrumb queries to a hierarchy"
+    beacons:
+      - "children lists, parent/parent_id fields, recursive walk functions"
+      - "rollup, ancestors, descendants, depth"
+
+  - id: ds-sorted-containers
+    name: Sorted sequences & range queries
+    region: ds
+    tier: 2
+    summary: "Keeping data sorted (bisect.insort, sorted lists) makes range and nearest-neighbor queries O(log n) — as long as every insertion preserves the order."
+    prereqs: [heapq-bisect]
+    bug_patterns:
+      - "readings are appended out of order to a list that range queries assume is sorted, so bisect returns the wrong slice"
+      - "a range query uses bisect_right for both ends, excluding readings exactly at the start time"
+      - "a sorted list is re-sorted on every insert, turning a stream of inserts quadratic"
+    feature_patterns:
+      - "Add 'between two timestamps' or 'nearest value' queries to a time-series store"
+    beacons:
+      - "bisect.* or insort on lists maintained in sorted order"
+      - "sort() calls inside insert paths"
+
+  - id: ds-tries
+    name: Tries & prefix structures
+    region: ds
+    tier: 2
+    summary: "A trie stores strings by shared prefixes, making prefix lookup cost proportional to the prefix length — but end-of-word markers and normalization must be handled explicitly."
+    prereqs: [ds-trees]
+    bug_patterns:
+      - "a trie never marks where words end, so 'car' is reported as a word just because 'cart' was inserted"
+      - "insert lowercases keys but lookup doesn't, so any capitalized query finds nothing"
+      - "deleting a word removes the shared prefix nodes, breaking every other word with that prefix"
+    feature_patterns:
+      - "Add top-k autocomplete suggestions ranked by frequency"
+    beacons:
+      - "nested dicts of characters; is_end/terminal flags"
+      - "prefix, autocomplete, route matching"
+
+  - id: ds-graphs
+    name: Graphs & adjacency lists
+    region: ds
+    tier: 2
+    summary: "Most real graphs are sparse — store them as adjacency lists (dict of node -> neighbors) and be explicit about direction and weights."
+    prereqs: [ds-hash-maps]
+    bug_patterns:
+      - "an undirected road network is stored with each edge in only one direction, so some routes are 'unreachable'"
+      - "an adjacency dict uses defaultdict(list), so merely checking graph[node] for a typo'd node creates it"
+      - "parallel edges are stored as a dict keyed by neighbor, so only the last connection's weight survives"
+    feature_patterns:
+      - "Add a 'who is connected to whom' or reachability query"
+    beacons:
+      - "dict of lists/sets named graph, adj, neighbors, edges"
+      - "edge-adding helpers — check both directions"
+
+  - id: ds-union-find
+    name: Union–find (disjoint sets)
+    region: ds
+    tier: 3
+    summary: "Union–find groups items into connected components in near-constant time per operation — correctness depends on always comparing *roots*, not raw parent pointers."
+    prereqs: [ds-graphs]
+    bug_patterns:
+      - "union(a, b) sets parent[a] = b instead of linking root(a) to root(b), so earlier merges are lost"
+      - "components are counted by distinct parent values instead of distinct find() roots"
+      - "without path compression or union by rank, a long chain makes find() recurse past the recursion limit"
+    feature_patterns:
+      - "Deduplicate records that are transitively linked (same email OR same phone)"
+    beacons:
+      - "parent dicts/lists with find() and union() helpers"
+      - "clustering, merge, 'same group', connected components"
+
+  - id: ds-lru-cache
+    name: LRU caches
+    region: ds
+    tier: 2
+    summary: "An LRU cache is a dict plus recency order (OrderedDict or dict + linked list) — every *read* must refresh recency, and eviction must remove from both structures."
+    prereqs: [ds-hash-maps, namedtuple-ordereddict-chainmap]
+    bug_patterns:
+      - "get() returns the value without move_to_end, so the cache evicts the hottest entries first"
+      - "eviction pops from the recency list but not from the dict, so memory grows without bound"
+      - "a capacity check uses > instead of >=, letting the cache hold one entry more than configured"
+    feature_patterns:
+      - "Add an LRU cache with hit/miss statistics in front of a slow lookup"
+    beacons:
+      - "OrderedDict with move_to_end/popitem(last=False)"
+      - "capacity / max_size fields with eviction logic"
+
+  - id: ds-ring-buffers
+    name: Ring buffers & fixed windows
+    region: ds
+    tier: 2
+    summary: "A ring buffer keeps the last N items in fixed memory using a wrapping index — the head/tail arithmetic (modulo and full-vs-empty) is where bugs live."
+    prereqs: [ds-lists-arrays, slicing-off-by-one]
+    bug_patterns:
+      - "the write index wraps with % capacity, but reading 'latest first' starts from the wrong index once the buffer is full"
+      - "full and empty are both detected by head == tail, so a full buffer reports itself as empty"
+      - "the moving average divides by capacity even while the buffer is only partially filled"
+    feature_patterns:
+      - "Add a rolling window (last N readings) with averages to a monitor"
+    beacons:
+      - "index = (index + 1) % size patterns"
+      - "fixed-size preallocated lists [None] * n"
+
+  - id: ds-intervals
+    name: Intervals & overlap
+    region: ds
+    tier: 2
+    summary: "Two half-open intervals [a, b) and [c, d) overlap iff a < d and c < b — most booking bugs are inclusive/exclusive mistakes at the edges or missed containment cases."
+    prereqs: [sorting-keys]
+    bug_patterns:
+      - "an overlap check tests only whether either start falls inside the other interval, missing a booking that fully contains another"
+      - "back-to-back reservations (10:00-11:00 and 11:00-12:00) are rejected as overlapping because the end is treated as inclusive"
+      - "merging sorted intervals compares with the previous interval instead of the merged one, leaving overlapping ranges"
+    feature_patterns:
+      - "Add 'find free slots' across multiple calendars or resources"
+      - "Merge overlapping maintenance windows"
+    beacons:
+      - "start/end pairs compared with <, <=, >, >="
+      - "functions named overlaps, conflicts, available, free_slots"
+
+  - id: ds-probabilistic
+    name: Probabilistic structures (Bloom, HyperLogLog, count-min)
+    region: ds
+    tier: 3
+    summary: "Probabilistic structures trade exactness for tiny memory: a Bloom filter can say 'maybe' but never a false 'no' — unless its hash functions or sizing are wrong."
+    prereqs: [ds-hash-maps]
+    bug_patterns:
+      - "a Bloom filter derives its k 'independent' hashes from the same seed, so they collide and the false-positive rate explodes"
+      - "the filter is sized for 10k items but fed 10M, so nearly every lookup returns 'maybe present'"
+      - "count-min sketch estimates use the maximum across rows instead of the minimum"
+    feature_patterns:
+      - "Add a 'probably seen before' check to skip duplicate URLs or events"
+    beacons:
+      - "bit arrays, multiple hash seeds, error-rate / capacity parameters"
+      - "min() or max() across sketch rows"
+
+  - id: ds-grids
+    name: Grids & 2-D arrays
+    region: ds
+    tier: 1
+    summary: "Grids are lists of rows indexed grid[row][col] — bugs come from swapped x/y, shared rows, and neighbor lookups that fall off the edge or wrap via negative indexes."
+    prereqs: [shallow-vs-deep-copy]
+    bug_patterns:
+      - "grid[x][y] is used in one module and grid[y][x] in another, transposing the board"
+      - "a neighbor check at column 0 reads grid[r][-1], silently wrapping to the far edge instead of treating it as out of bounds"
+      - "a new board is created as [[EMPTY] * w] * h, so a move on one row appears on all rows"
+    feature_patterns:
+      - "Add a flood fill, path check or region count to a board or map"
+    beacons:
+      - "nested index access grid[..][..]; dx/dy neighbor lists"
+      - "boundary checks like 0 <= r < rows"
+
+  - id: ds-linked-lists
+    name: Linked lists & node references
+    region: ds
+    tier: 2
+    summary: "Node-and-pointer structures (linked lists, LRU internals, doubly linked queues) break when an update forgets one of the pointers it must change."
+    prereqs: [names-and-binding]
+    bug_patterns:
+      - "removing a node from a doubly linked list updates prev.next but not next.prev, corrupting backward traversal"
+      - "removing the head doesn't update self.head, so the list still 'contains' the removed element"
+      - "a cycle introduced by a bad splice makes len() loop forever"
+    feature_patterns:
+      - "Add move-to-front or splice operations to a linked structure"
+    beacons:
+      - "Node classes with next/prev attributes; head/tail fields"
+      - "sentinel/dummy nodes"
+
+  # ---------------------------------------------------------------- algo ----
+  - id: algo-complexity
+    name: Complexity in real code
+    region: algo
+    tier: 1
+    summary: "Hidden O(n^2) hides in innocent lines — `in` on a list inside a loop, string += in a loop, nested scans, repeated sorting — and only shows up once data grows."
+    prereqs: [ds-lists-arrays]
+    bug_patterns:
+      - "a dedupe step does `if x not in seen_list` for each of 500k rows, turning a 2-second job into a 40-minute job"
+      - "a report builds a large string with += in a loop over rows"
+      - "sorted(items) is called inside a loop that only needs the minimum each time"
+      - "for each user, the code filters the entire events list to find that user's events"
+    feature_patterns:
+      - "Make an existing slow endpoint or batch job scale to 100x the data"
+    beacons:
+      - "loops nested inside loops over the same or related collections"
+      - "membership tests, sorts or filters inside loop bodies"
+
+  - id: algo-binary-search
+    name: Binary search
+    region: algo
+    tier: 2
+    summary: "Binary search needs a sorted (monotonic) sequence and a precise loop invariant — most bugs are off-by-one updates of lo/hi that skip the answer or loop forever."
+    prereqs: [slicing-off-by-one]
+    bug_patterns:
+      - "while lo < hi: mid = (lo + hi) // 2; lo = mid loops forever once hi == lo + 1"
+      - "a search for the first version that fails returns the last passing version because of a <= vs < mix-up"
+      - "binary search over a list that isn't actually sorted by the searched key returns plausible but wrong results"
+    feature_patterns:
+      - "Find the first/last timestamp at or after a point in a large sorted log"
+    beacons:
+      - "lo/hi/mid variables; while lo < hi or lo <= hi"
+      - "bisect calls on data whose sortedness isn't guaranteed"
+
+  - id: algo-sliding-window
+    name: Sliding windows & two pointers
+    region: algo
+    tier: 2
+    summary: "A sliding window keeps a running aggregate as items enter and leave — every item that enters must also be removed exactly once when it leaves."
+    prereqs: [slicing-off-by-one, deque]
+    bug_patterns:
+      - "a 60-second request counter adds new timestamps but only evicts one old one per request, so counts grow forever"
+      - "the window boundary uses < where <= was needed, so an event exactly 60 s old is still counted"
+      - "a running sum subtracts the element at the wrong index when the window slides"
+    feature_patterns:
+      - "Add a rolling 'last 5 minutes' metric or rate check"
+    beacons:
+      - "left/right pointers or deques of timestamps with while-evict loops"
+      - "running_sum / window variables updated incrementally"
+
+  - id: algo-prefix-sums
+    name: Prefix sums & cumulative aggregates
+    region: algo
+    tier: 2
+    summary: "Precompute cumulative totals once and every range sum becomes prefix[end] - prefix[start] — with the classic off-by-one of whether prefix has a leading zero."
+    prereqs: [slicing-off-by-one]
+    bug_patterns:
+      - "prefix is built without a leading 0, so range_sum(0, k) fails or silently drops the first element"
+      - "cumulative totals are recomputed from scratch for every query, making a dashboard quadratic"
+      - "a cumulative balance is stored and not updated when a backdated transaction is inserted"
+    feature_patterns:
+      - "Add fast 'total between two dates' queries to a ledger or metrics series"
+    beacons:
+      - "itertools.accumulate or running-total lists"
+      - "range sums computed as prefix[j] - prefix[i]"
+
+  - id: algo-sort-and-sweep
+    name: Sort and sweep
+    region: algo
+    tier: 2
+    summary: "Sort events by position/time and sweep once — merging intervals, counting overlaps or finding peak load — with ties at the same timestamp resolved deliberately."
+    prereqs: [sorting-keys, ds-intervals]
+    bug_patterns:
+      - "a peak-concurrency sweep processes starts before ends at the same timestamp, reporting one more concurrent booking than is real"
+      - "intervals are merged without sorting them first, producing overlapping 'merged' ranges"
+      - "the sweep forgets to flush the final open interval after the loop ends"
+    feature_patterns:
+      - "Compute peak occupancy or maximum concurrent sessions over a day"
+    beacons:
+      - "lists of (time, +1/-1) events sorted then scanned"
+      - "merge loops that compare current start with previous end"
+
+  - id: algo-bfs-dfs
+    name: BFS & DFS traversal
+    region: algo
+    tier: 2
+    summary: "Graph traversal needs a visited set (or it loops on cycles), BFS finds shortest paths in unweighted graphs, and recursive DFS can hit the recursion limit on deep graphs."
+    prereqs: [ds-graphs, ds-stacks-queues]
+    bug_patterns:
+      - "nodes are marked visited when dequeued rather than when enqueued, so large graphs enqueue the same node many times"
+      - "no visited set at all: the first cyclic dependency sends the crawler into an infinite loop"
+      - "a BFS 'shortest route' uses a stack (pop()) and returns a path that isn't shortest"
+    feature_patterns:
+      - "Add 'degrees of separation' or 'reachable within N hops' queries"
+    beacons:
+      - "queue/stack + visited/seen set loops"
+      - "recursive walk functions over neighbor lists"
+
+  - id: algo-topological-sort
+    name: Topological sort & cycle detection
+    region: algo
+    tier: 2
+    summary: "Ordering tasks by dependency is a topological sort; if some nodes are never emitted, there's a cycle — and a correct implementation reports it instead of silently dropping them."
+    prereqs: [algo-bfs-dfs]
+    bug_patterns:
+      - "Kahn's algorithm returns a partial order when there's a dependency cycle, and the build silently skips those targets"
+      - "edges are added as dependent -> dependency instead of dependency -> dependent, reversing the build order"
+      - "in-degree counts are computed once and reused across runs, so the second run emits nothing"
+    feature_patterns:
+      - "Add cycle reporting (with the actual cycle path) to a dependency resolver"
+    beacons:
+      - "in_degree dicts, 'ready' queues, depends_on/requires fields"
+      - "build order, migration order, task graphs"
+
+  - id: algo-dijkstra
+    name: Shortest paths (Dijkstra)
+    region: algo
+    tier: 3
+    summary: "Dijkstra pops the closest unsettled node from a heap; stale heap entries must be skipped, and negative weights break the algorithm entirely."
+    prereqs: [algo-bfs-dfs, ds-heaps]
+    bug_patterns:
+      - "stale heap entries aren't skipped (no `if d > dist[node]: continue`), so nodes are relaxed repeatedly and routes are slow"
+      - "a node is marked settled when it's pushed rather than when it's popped, locking in a suboptimal distance"
+      - "the predecessor map isn't updated on relaxation, so the reported route doesn't match the reported cost"
+    feature_patterns:
+      - "Add cheapest-route or fastest-route planning with a path reconstruction"
+    beacons:
+      - "heapq with (distance, node) tuples and a dist dict"
+      - "prev/parent maps for path reconstruction"
+
+  - id: algo-dynamic-programming
+    name: Dynamic programming & memoization
+    region: algo
+    tier: 3
+    summary: "DP solves overlapping subproblems once — the table's base cases, iteration order and index meaning must line up exactly, or answers are subtly off."
+    prereqs: [algo-recursion, functools]
+    bug_patterns:
+      - "an edit-distance table initializes its first row/column to 0 instead of 0..n, underestimating every distance"
+      - "a memoized recursion caches results keyed on only one of the two changing parameters"
+      - "an unbounded vs 0/1 knapsack confusion lets the same coupon be applied multiple times"
+    feature_patterns:
+      - "Add best-combination selection (packages, coupons, slots) under a budget"
+    beacons:
+      - "2-D tables dp[i][j]; @lru_cache on recursive functions"
+      - "base-case initialization loops"
+
+  - id: algo-greedy
+    name: Greedy algorithms
+    region: algo
+    tier: 2
+    summary: "A greedy choice is only correct when a local best choice can't hurt later — sort order and the tie-break rule are the whole algorithm."
+    prereqs: [sorting-keys]
+    bug_patterns:
+      - "interval scheduling sorts by start time instead of end time, fitting fewer meetings into the room"
+      - "coin/change-making greedy fails for a custom denomination set and returns more coins than necessary"
+      - "ties are broken by insertion order, so the same input produces different assignments on each run"
+    feature_patterns:
+      - "Assign tasks to workers or slots to maximize utilization"
+    beacons:
+      - "sort then single pass choosing the 'best' item"
+      - "assignment/allocation loops with a running capacity"
+
+  - id: algo-recursion
+    name: Recursion
+    region: algo
+    tier: 1
+    summary: "Every recursive function needs a base case that's always reached and a step that shrinks the problem; Python caps depth at about 1000 frames."
+    prereqs: []
+    bug_patterns:
+      - "a recursive category walk has no base case for a missing parent and recurses until RecursionError"
+      - "a recursive function builds a result but only the base case returns it, so callers receive None"
+      - "recursion over a 5000-deep reply chain crashes with RecursionError where an explicit stack would work"
+    feature_patterns:
+      - "Add a nested/hierarchical export (tree to nested JSON)"
+    beacons:
+      - "a function that calls itself; missing return on the recursive branch"
+      - "sys.setrecursionlimit calls"
+
+  - id: algo-parsing
+    name: Tokenizing & recursive-descent parsing
+    region: algo
+    tier: 3
+    summary: "A parser turns text into structure: one function per grammar rule, precedence climbing for operators — and associativity/precedence bugs quietly change results."
+    prereqs: [algo-recursion, string-handling]
+    bug_patterns:
+      - "subtraction is parsed right-associatively, so 10 - 4 - 3 evaluates to 9 instead of 3"
+      - "the tokenizer doesn't handle negative numbers after an operator, so 2 * -3 is a syntax error"
+      - "* and + share a precedence level, so 2 + 3 * 4 evaluates to 20"
+      - "the parser returns after the first expression without checking for leftover tokens, silently ignoring trailing input"
+    feature_patterns:
+      - "Add a new operator or function to an expression/formula language"
+    beacons:
+      - "functions named parse_expr, parse_term, parse_factor; token streams with peek/advance"
+      - "precedence tables or binding-power numbers"
+
+  - id: algo-string-matching
+    name: String algorithms & fuzzy matching
+    region: algo
+    tier: 2
+    summary: "Normalize before comparing, and pick the right similarity — edit distance, token overlap (Jaccard) or n-grams — each has different failure cases."
+    prereqs: [string-handling]
+    bug_patterns:
+      - "a duplicate detector compares raw strings, so 'Acme Inc.' and 'ACME, Inc' are treated as different companies"
+      - "Jaccard similarity divides by the size of one set instead of the union, rating short strings as near-duplicates of everything"
+      - "n-grams are generated with range(len(s) - n), dropping the last n-gram"
+    feature_patterns:
+      - "Add 'did you mean' suggestions or fuzzy duplicate detection"
+    beacons:
+      - "normalize/clean functions before comparisons; similarity thresholds"
+      - "difflib, set intersections over tokens, n-gram generators"
+
+  - id: algo-consistent-hashing
+    name: Hashing & consistent hashing
+    region: algo
+    tier: 3
+    summary: "Python's hash() of str/bytes is randomized per process, so never use it for anything stored or shared; consistent hashing moves only ~1/n of keys when nodes change."
+    prereqs: [hashing-and-secrets, algo-binary-search]
+    bug_patterns:
+      - "shard = hash(user_id) % n_shards sends the same user to different shards in different worker processes"
+      - "shard = key_hash % len(nodes): adding one node remaps most keys and empties every cache"
+      - "the ring lookup doesn't wrap around past the last point, so keys hashing beyond it raise IndexError"
+    feature_patterns:
+      - "Add stable key-to-node assignment that survives adding or removing a node"
+    beacons:
+      - "hash(...) % n, especially on strings"
+      - "sorted ring positions with bisect lookups"
+
+  - id: algo-streaming-stats
+    name: Streaming statistics
+    region: algo
+    tier: 3
+    summary: "Compute stats in one pass without storing everything — Welford for mean/variance, heaps for top-k, reservoir sampling for fair samples — each with exact update rules."
+    prereqs: [numeric-semantics, ds-heaps]
+    bug_patterns:
+      - "variance is computed as mean(x^2) - mean(x)^2 on large timestamps, producing negative variance from float cancellation"
+      - "reservoir sampling replaces an item with probability k/n using the wrong n, biasing toward early items"
+      - "a p95 is computed by indexing sorted values at int(0.95 * len) without handling small samples"
+    feature_patterns:
+      - "Add live mean/variance/percentile metrics over a stream"
+    beacons:
+      - "running count/mean/M2 variables; heapq.nlargest/nsmallest"
+      - "random.randint(0, n) inside a streaming loop"
+
+  - id: algo-numeric-geometry
+    name: Numeric & geometric computation
+    region: algo
+    tier: 2
+    summary: "Geometry and physics code needs consistent units, radians vs degrees, and tolerances instead of exact float comparisons."
+    prereqs: [numeric-semantics]
+    bug_patterns:
+      - "a haversine distance passes degrees to math.sin/cos, so every distance is wrong"
+      - "latitude and longitude are swapped when building points, placing stores in the ocean"
+      - "a collision check uses == on float positions and misses objects that pass through each other"
+      - "per-step rounding accumulates in a simulation, drifting total energy or balance over many steps"
+    feature_patterns:
+      - "Add 'nearest N locations' or 'within radius' search"
+    beacons:
+      - "math.radians/degrees, sin/cos/atan2; lat/lon pairs"
+      - "math.isclose / epsilon comparisons (or their absence)"
+
+  - id: algo-simulation
+    name: Simulation & randomness
+    region: algo
+    tier: 2
+    summary: "Discrete-event and step simulations need a correct event order, a clear clock, and seeded randomness so results are reproducible and testable."
+    prereqs: [random-seeding]
+    bug_patterns:
+      - "two events share a timestamp, so the heap falls back to comparing their payload objects and raises TypeError: '<' not supported"
+      - "the simulation clock advances by a fixed tick and skips events that fall between ticks"
+      - "each run seeds from the current time, so a reported bug can't be reproduced"
+    feature_patterns:
+      - "Add a what-if scenario runner that compares policies over the same random seed"
+    beacons:
+      - "event queues with timestamps; clock/now variables advanced in loops"
+      - "random calls inside simulation steps"
+
+  - id: algo-diff-merge
+    name: Diffing & merging
+    region: algo
+    tier: 3
+    summary: "Diffs come from longest-common-subsequence style alignment; patches and three-way merges must track line offsets precisely as earlier hunks change the text."
+    prereqs: [algo-dynamic-programming]
+    bug_patterns:
+      - "applying multiple hunks doesn't adjust later hunks' line offsets after earlier insertions, corrupting the file"
+      - "a three-way merge treats 'both sides made the same change' as a conflict"
+      - "trailing-newline differences are ignored, so a patch applies but the file's last line is mangled"
+    feature_patterns:
+      - "Add a unified-diff renderer or conflict detection between document versions"
+    beacons:
+      - "difflib usage, hunk/offset bookkeeping, LCS tables"
+      - "base/ours/theirs variables"
+
+  - id: algo-calendar-scheduling
+    name: Calendar & scheduling arithmetic
+    region: algo
+    tier: 2
+    summary: "Month lengths vary, 'business days' skip weekends and holidays, recurrences anchor to a start date — and naive day arithmetic breaks at month-end and year boundaries."
+    prereqs: [datetime-timezones]
+    bug_patterns:
+      - "a monthly billing date computed as date.replace(month=month + 1) crashes on Jan 31 or in December"
+      - "'add 5 business days' counts the start day and lands one day early"
+      - "a weekly recurrence computed from 'today' instead of the series start drifts when a run is late"
+      - "the ISO week number is used as a key while the year comes from date.year, mixing weeks across new year"
+    feature_patterns:
+      - "Add recurring schedules (every 2nd Tuesday, last business day of month)"
+    beacons:
+      - "date.replace(month=...), weekday() checks, holiday sets"
+      - "isocalendar(), relativedelta, recurrence rules"
+
+  # --------------------------------------------------------- concurrency ----
+  - id: conc-threads-races
+    name: Threads & race conditions
+    region: concurrency
+    tier: 2
+    summary: "Check-then-act and read-modify-write sequences (including counter += 1) are not atomic across threads — shared mutable state needs a lock or a single owner."
+    prereqs: [names-and-binding]
+    bug_patterns:
+      - "two threads both see seats_left == 1 and both book the last seat (check-then-act without a lock)"
+      - "a shared stats dict updated with stats[k] += 1 from worker threads undercounts under load"
+      - "a lazily initialized singleton is created twice when two threads hit it at startup"
+    feature_patterns:
+      - "Make an in-memory service safe to call from a thread pool"
+    beacons:
+      - "module-level or instance state touched from threads/executors"
+      - "if <condition>: <mutate> sequences on shared data"
+
+  - id: conc-locks-deadlocks
+    name: Locks, RLock & deadlocks
+    region: concurrency
+    tier: 3
+    summary: "Acquire multiple locks in one global order, keep critical sections short (no I/O under a lock), and remember a plain Lock is not re-entrant."
+    prereqs: [conc-threads-races, context-managers]
+    bug_patterns:
+      - "transfer(a, b) locks a then b while transfer(b, a) locks b then a, and two concurrent transfers deadlock"
+      - "a method holding self._lock calls another method that also acquires self._lock (a plain Lock) and hangs forever"
+      - "a lock is held while calling a slow external service, serializing every request behind it"
+      - "lock.acquire() without try/finally leaves the lock held after an exception"
+    feature_patterns:
+      - "Add a safe multi-resource operation (transfer, swap, move) under concurrency"
+    beacons:
+      - "multiple locks acquired in one function; nested with lock blocks"
+      - "acquire()/release() pairs without with"
+
+  - id: conc-gil
+    name: "The GIL — CPU-bound vs I/O-bound work"
+    region: concurrency
+    tier: 2
+    summary: "Threads speed up I/O-bound work but not CPU-bound pure-Python work (the GIL); CPU-heavy work needs processes, vectorized libraries or a different algorithm."
+    prereqs: [conc-threads-races]
+    bug_patterns:
+      - "a ThreadPoolExecutor is added to speed up image hashing in pure Python and the job gets slower, not faster"
+      - "a CPU-heavy scoring loop runs in a thread inside a web service and starves request handling"
+      - "the GIL is assumed to make compound operations atomic, so a check-and-update on a shared dict races"
+    feature_patterns:
+      - "Parallelize a CPU-bound batch job correctly"
+    beacons:
+      - "thread pools wrapped around CPU-heavy pure-Python functions"
+      - "comments claiming something is 'thread-safe because of the GIL'"
+
+  - id: conc-futures-pools
+    name: concurrent.futures & worker pools
+    region: concurrency
+    tier: 2
+    summary: "Exceptions raised in a submitted task live inside its Future and vanish unless someone calls .result(); executor.map yields results in input order and re-raises lazily."
+    prereqs: [conc-threads-races, exception-handling]
+    bug_patterns:
+      - "futures are submitted and never checked, so failed uploads disappear silently and the job reports success"
+      - "results from as_completed() are zipped with the input list, pairing each result with the wrong input"
+      - "the executor is created per request and never shut down, leaking threads until the process stalls"
+    feature_patterns:
+      - "Parallelize independent I/O calls with bounded concurrency and per-item error reporting"
+    beacons:
+      - "executor.submit(...) without .result(); as_completed loops"
+      - "ThreadPoolExecutor/ProcessPoolExecutor lifetimes"
+
+  - id: conc-producer-consumer
+    name: Producer/consumer queues
+    region: concurrency
+    tier: 2
+    summary: "queue.Queue hands work between threads safely; shutdown needs one sentinel per consumer, and join() only returns if every get() is matched by task_done()."
+    prereqs: [conc-threads-races, ds-stacks-queues]
+    bug_patterns:
+      - "one sentinel is enqueued for four workers, so three workers block forever and the process never exits"
+      - "a worker skips task_done() on the error path, so queue.join() hangs after the first failure"
+      - "an unbounded queue lets a fast producer buffer millions of items in memory"
+    feature_patterns:
+      - "Add graceful shutdown to a worker pool"
+    beacons:
+      - "queue.Queue, put/get/task_done/join, None sentinels"
+      - "while True worker loops"
+
+  - id: async-basics
+    name: asyncio fundamentals
+    region: concurrency
+    tier: 2
+    summary: "Calling an async function only creates a coroutine — nothing runs until it's awaited or scheduled as a task, and sync code can't simply call async code."
+    prereqs: [iterators-generators]
+    bug_patterns:
+      - "notify_user(user) is called without await, so no notification is ever sent (only a 'coroutine was never awaited' warning)"
+      - "if await cache.get(key) is None is written as if cache.get(key) is None, so the coroutine object is never None"
+      - "asyncio.run() is called inside code that's already running in an event loop, raising RuntimeError"
+    feature_patterns:
+      - "Add an async variant of an existing sync client"
+    beacons:
+      - "async def functions called without await"
+      - "asyncio.run / get_event_loop usage inside libraries"
+
+  - id: async-blocking-loop
+    name: Blocking the event loop
+    region: concurrency
+    tier: 2
+    summary: "Everything in one event loop shares one thread — a blocking call (time.sleep, sync I/O, CPU-heavy loops) freezes every other task."
+    prereqs: [async-basics]
+    bug_patterns:
+      - "time.sleep(1) inside an async retry loop stalls every other connection for that second"
+      - "an async endpoint calls a synchronous database driver, so throughput collapses to one request at a time"
+      - "a CPU-heavy JSON transform in an async handler makes health checks time out"
+    feature_patterns:
+      - "Offload blocking work with asyncio.to_thread or a process pool"
+    beacons:
+      - "time.sleep, requests.*, open().read(), heavy loops inside async def"
+      - "missing await asyncio.sleep in retry loops"
+
+  - id: async-tasks-cancellation
+    name: Tasks, gather, cancellation & timeouts
+    region: concurrency
+    tier: 3
+    summary: "Keep references to tasks you create, decide what gather does on failure, and never swallow CancelledError — cancellation is how timeouts and shutdown work."
+    prereqs: [async-basics, exception-handling]
+    bug_patterns:
+      - "asyncio.create_task(send_receipt()) without keeping a reference lets the task be garbage collected mid-flight"
+      - "gather() without return_exceptions=True raises the first failure while the other tasks keep running unobserved"
+      - "except BaseException: log and continue inside a task swallows CancelledError, so shutdown hangs"
+      - "asyncio.wait_for cancels the inner operation on timeout, leaving a half-written record"
+    feature_patterns:
+      - "Add per-call timeouts and graceful cancellation to a fan-out"
+    beacons:
+      - "create_task without storing the task; gather(...) arguments"
+      - "except Exception/BaseException around awaits; wait_for / timeout blocks"
+
+  - id: async-bounded-concurrency
+    name: Semaphores & bounded concurrency
+    region: concurrency
+    tier: 3
+    summary: "Unbounded gather over thousands of coroutines overwhelms downstream services; a semaphore (acquired around the actual work) keeps concurrency to a fixed limit."
+    prereqs: [async-tasks-cancellation]
+    bug_patterns:
+      - "gather over 20k fetches opens 20k connections and the fake upstream starts rejecting requests"
+      - "the semaphore is created inside the per-item coroutine, so every call gets its own semaphore and nothing is limited"
+      - "the semaphore wraps only task creation, not the awaited request, so the limit has no effect"
+    feature_patterns:
+      - "Add a max-concurrency setting to a crawler or batch fetcher"
+    beacons:
+      - "asyncio.Semaphore and where it's created and acquired"
+      - "gather(*[... for item in huge_list])"
+
+  - id: async-shared-state
+    name: Async race conditions
+    region: concurrency
+    tier: 3
+    summary: "Coroutines interleave at every await — a check before an await and an update after it can race exactly like threads."
+    prereqs: [async-basics, conc-threads-races]
+    bug_patterns:
+      - "if user not in cache: data = await fetch(user); cache[user] = data — concurrent requests fetch the same user many times"
+      - "balance is read, an await happens (audit log write), then the stale balance is written back, losing a concurrent update"
+      - "a shared async client is closed by one task while others are still awaiting it"
+    feature_patterns:
+      - "Add request coalescing (single-flight) to an async cache"
+    beacons:
+      - "read-await-write sequences on shared state"
+      - "asyncio.Lock usage (or its absence) around shared dicts"
+
+  - id: conc-multiprocessing
+    name: multiprocessing
+    region: concurrency
+    tier: 3
+    summary: "Processes don't share memory: arguments and results are pickled, globals modified in the parent aren't seen by children, and macOS/Windows spawn re-imports your module."
+    prereqs: [conc-gil]
+    bug_patterns:
+      - "a lambda passed to Pool.map fails with PicklingError"
+      - "workers update a global counter that the parent never sees, so the summary reports 0 processed"
+      - "module-level code without an if __name__ == '__main__' guard runs again in every spawned worker"
+    feature_patterns:
+      - "Parallelize a CPU-bound pipeline stage across processes"
+    beacons:
+      - "multiprocessing.Pool / ProcessPoolExecutor with lambdas or closures"
+      - "globals mutated inside worker functions"
+
+  # ---------------------------------------------------------------- data ----
+  - id: sql-basics
+    name: SQL semantics from Python
+    region: data
+    tier: 2
+    summary: "NULL is not a value: col != 'x' excludes NULL rows, COUNT(col) skips NULLs, and a WHERE clause on the right table of a LEFT JOIN quietly turns it into an inner join."
+    prereqs: [truthiness-none]
+    bug_patterns:
+      - "WHERE status != 'cancelled' also drops every order whose status is NULL, so the dashboard undercounts"
+      - "a LEFT JOIN to payments followed by WHERE payments.method = 'card' removes customers with no payments"
+      - "AVG(rating) ignores NULL ratings while the Python code divides SUM by COUNT(*), giving two different averages"
+    feature_patterns:
+      - "Add a report query with grouping, joins and NULL-safe filters"
+    beacons:
+      - "SQL strings with LEFT JOIN, != / <>, COUNT, AVG, IS NULL"
+      - "Python post-processing of query results that assumes no NULLs"
+
+  - id: sql-parameterized-queries
+    name: Parameterized queries & SQL injection
+    region: data
+    tier: 1
+    summary: "Never build SQL with f-strings or % — pass values as parameters (?, :name) so the driver quotes them; identifiers like column names need an allowlist."
+    prereqs: [string-handling]
+    bug_patterns:
+      - "cursor.execute(f\"SELECT * FROM users WHERE email = '{email}'\") breaks for O'Brien and lets crafted input dump the table"
+      - "a sort parameter is interpolated into ORDER BY without an allowlist, allowing arbitrary SQL"
+      - "an IN clause is built by joining raw ids into the SQL string instead of generating one placeholder per id"
+    feature_patterns:
+      - "Add a filterable search endpoint with safe dynamic WHERE clauses"
+    beacons:
+      - "f-strings, % or .format() used to build SQL"
+      - "execute() calls with a single string argument"
+
+  - id: sql-transactions
+    name: Transactions & atomicity
+    region: data
+    tier: 2
+    summary: "Operations that must succeed or fail together belong in one transaction — commit once at the end, roll back on error, and don't commit inside helpers."
+    prereqs: [sql-basics, exception-handling]
+    bug_patterns:
+      - "a transfer debits one account, then fails before crediting the other, and the debit is already committed"
+      - "a helper calls conn.commit() mid-operation, so a later failure can't roll back the earlier steps"
+      - "an exception between insert and commit leaves the connection in a failed transaction that breaks the next request"
+    feature_patterns:
+      - "Add an operation that updates several tables atomically"
+    beacons:
+      - "commit()/rollback() calls and where they live"
+      - "multi-step writes without a surrounding transaction"
+
+  - id: sql-n-plus-one
+    name: N+1 queries
+    region: data
+    tier: 2
+    summary: "Querying once for a list and then once per item makes page time grow linearly with the number of rows — fetch related data in one query or one batch."
+    prereqs: [sql-basics, algo-complexity]
+    bug_patterns:
+      - "an orders page runs one query for orders and one more per order for its customer, taking seconds at 500 orders"
+      - "a loop calls get_product(id) for each cart line instead of one WHERE id IN (...) query"
+      - "a serializer touches a lazy relationship per row, silently issuing a query for each"
+    feature_patterns:
+      - "Add a list endpoint that includes related data without N+1 queries"
+    beacons:
+      - "database calls inside loops over query results"
+      - "per-item get_by_id helpers called from list views"
+
+  - id: sql-indexes-pagination
+    name: Indexes & pagination
+    region: data
+    tier: 2
+    summary: "OFFSET pagination drifts when rows are inserted and gets slower with depth; paginate on a unique, indexed ordering (keyset) and always ORDER BY something unique."
+    prereqs: [sql-basics, slicing-off-by-one]
+    bug_patterns:
+      - "ORDER BY created_at with duplicate timestamps makes items appear on two pages or on none"
+      - "new rows arriving between requests shift OFFSET pages, so users see duplicates while scrolling"
+      - "a cursor encodes only the timestamp, skipping rows that share the boundary timestamp"
+    feature_patterns:
+      - "Add cursor-based pagination to a list endpoint"
+    beacons:
+      - "LIMIT/OFFSET queries; ORDER BY non-unique columns"
+      - "next_cursor / page tokens"
+
+  - id: sql-sqlite3
+    name: sqlite3 specifics
+    region: data
+    tier: 2
+    summary: "Python's sqlite3 opens transactions implicitly, `with conn:` commits or rolls back but doesn't close, and rows are tuples unless you set a row_factory."
+    prereqs: [sql-basics, sql-parameterized-queries]
+    bug_patterns:
+      - "inserts are never committed, so data disappears when the connection closes"
+      - "row['name'] fails because the connection has no row_factory, and positional indexing was used inconsistently"
+      - "a single sqlite connection is shared across threads without check_same_thread=False or locking"
+    feature_patterns:
+      - "Add a small migration step and a repository function using sqlite3"
+    beacons:
+      - "sqlite3.connect, with conn:, commit(), row_factory"
+      - "executemany and parameter tuples"
+
+  - id: data-schema-migrations
+    name: Schema evolution & migrations
+    region: data
+    tier: 3
+    summary: "Schema changes must be compatible with the code already running: add nullable columns first, backfill, then tighten — never rename or drop in one step."
+    prereqs: [sql-basics]
+    bug_patterns:
+      - "a column is renamed in the migration while old code still reads the old name, so requests fail mid-deploy"
+      - "a NOT NULL column is added without a default, failing the migration on existing rows"
+      - "a backfill runs in one giant transaction, locking the table for minutes"
+    feature_patterns:
+      - "Add a new required field to existing data with a safe multi-step migration"
+    beacons:
+      - "migration files, ALTER TABLE statements, schema_version tables"
+      - "code that reads optional columns with fallbacks"
+
+  - id: data-serialization-versioning
+    name: Serialization & format versioning
+    region: data
+    tier: 2
+    summary: "Stored and transmitted data outlives the code that wrote it — readers must tolerate unknown and missing fields, and every format change needs a version story."
+    prereqs: [json-serialization]
+    bug_patterns:
+      - "a strict loader rejects messages containing a new optional field sent by a newer producer"
+      - "a renamed field makes every old saved document load with that field silently defaulted"
+      - "an enum value added by the producer crashes older consumers with ValueError"
+    feature_patterns:
+      - "Add a v2 format while still reading v1 data"
+    beacons:
+      - "version fields, from_dict/to_dict functions, schema classes"
+      - "strict parsing with no handling of unknown keys"
+
+  - id: data-file-formats-streaming
+    name: File formats & streaming large files
+    region: data
+    tier: 2
+    summary: "Stream line-oriented formats (CSV, JSONL, logs) instead of loading them whole, handle a partial last line, and know your config format's type rules (YAML's 'no' is False)."
+    prereqs: [csv-and-file-io, iterators-generators]
+    bug_patterns:
+      - "json.load() on a multi-gigabyte JSON array exhausts memory where JSON Lines streaming would not"
+      - "a JSONL reader crashes on a truncated final line written by a producer that was killed mid-write"
+      - "a YAML config with country: NO parses as False, breaking the Norway region"
+    feature_patterns:
+      - "Add a streaming import of a large export with progress reporting"
+    beacons:
+      - "json.load / read() on large inputs; per-line parsing loops"
+      - "YAML configs with bare yes/no/on/off or leading-zero values"
+
+  - id: data-validation-cleaning
+    name: Data validation & cleaning
+    region: data
+    tier: 1
+    summary: "Normalize before you compare, validate at the edge, and make coercion explicit — '' is not 0, ' ACME ' is 'acme', and '1,234' is not a float."
+    prereqs: [string-handling, truthiness-none]
+    bug_patterns:
+      - "emails are deduplicated without trimming and lowercasing, so 'Ana@x.com ' and 'ana@x.com' become two customers"
+      - "an empty quantity field is coerced to 0 and silently accepted instead of being reported as missing"
+      - "float('1,234.50') raises ValueError on the first European-formatted export and the whole import aborts"
+    feature_patterns:
+      - "Add a validation report (row, field, problem) to an importer"
+    beacons:
+      - "normalize/clean helpers, int()/float() conversions on raw input"
+      - "dedup keys built from user-entered text"
+
+  # ------------------------------------------------------------- systems ----
+  - id: sys-caching
+    name: Caching & invalidation
+    region: systems
+    tier: 2
+    summary: "A cache is a second copy of the truth — its key must include every input that changes the answer, and every write path must invalidate or update it."
+    prereqs: [ds-hash-maps]
+    bug_patterns:
+      - "a price cache is keyed by product_id only, so customers in different currencies see each other's prices"
+      - "an update endpoint writes the database but never invalidates the cache, so users see stale profiles for an hour"
+      - "a cache stores None for 'not found', so a record created a second later stays 'missing' until the TTL expires"
+      - "every request misses at the same moment after expiry and stampedes the slow backend"
+    feature_patterns:
+      - "Add a TTL cache in front of a slow dependency, with explicit invalidation on writes"
+    beacons:
+      - "cache dicts / get-or-compute helpers and how their keys are built"
+      - "write paths that don't mention the cache"
+
+  - id: sys-rate-limiting
+    name: Rate limiting
+    region: systems
+    tier: 2
+    summary: "Token buckets allow controlled bursts, fixed windows allow double bursts at the boundary, and all limiters need a monotonic clock and per-key memory bounds."
+    prereqs: [clocks-and-uuid]
+    bug_patterns:
+      - "a fixed-window limiter lets a client send 2x the limit by bursting at 11:59:59 and again at 12:00:00"
+      - "token refill uses elapsed wall-clock time, so a clock correction grants a huge burst"
+      - "the limit check uses > instead of >=, allowing one extra request per window"
+      - "per-client buckets are never evicted, so memory grows with every IP ever seen"
+    feature_patterns:
+      - "Add per-API-key limits with different tiers and a Retry-After value"
+    beacons:
+      - "tokens / refill_rate / window variables; timestamps per client"
+      - "429 responses and Retry-After headers"
+
+  - id: sys-retries-backoff
+    name: Retries, backoff & jitter
+    region: systems
+    tier: 2
+    summary: "Retry only idempotent operations and transient errors, back off exponentially with a cap and jitter, and retry at one layer only."
+    prereqs: [exception-handling, random-seeding]
+    bug_patterns:
+      - "a payment POST is retried on timeout without an idempotency key, charging the customer twice"
+      - "400-class validation errors are retried five times, adding seconds of latency before the inevitable failure"
+      - "every client retries after exactly 1, 2, 4 seconds with no jitter, so retries arrive as synchronized waves"
+      - "a client library retries 3x and the caller also retries 3x, turning one outage into 9x traffic"
+    feature_patterns:
+      - "Add a reusable retry policy with backoff, jitter and retryable-error classification"
+    beacons:
+      - "retry loops / decorators, sleep(2 ** attempt), max_attempts"
+      - "which exceptions or status codes are treated as retryable"
+
+  - id: sys-idempotency
+    name: Idempotency & deduplication
+    region: systems
+    tier: 2
+    summary: "Anything that can be retried or redelivered must be safe to apply twice — record an idempotency key atomically with the effect, scoped to the right caller."
+    prereqs: [sys-retries-backoff]
+    bug_patterns:
+      - "the idempotency key is saved after the charge succeeds, so a crash between the two lets a retry charge again"
+      - "idempotency keys are global rather than per-customer, so two customers generating the same key block each other"
+      - "a webhook handler processes redelivered events again, double-crediting accounts"
+    feature_patterns:
+      - "Add idempotency keys to a create/charge endpoint"
+    beacons:
+      - "idempotency_key / request_id / event_id fields and seen-sets"
+      - "handlers for webhooks or queue messages"
+
+  - id: sys-queues-workers
+    name: Queues, workers & delivery guarantees
+    region: systems
+    tier: 3
+    summary: "At-least-once queues redeliver — ack after the work is done, keep processing within the visibility timeout, and park poison messages in a dead-letter queue."
+    prereqs: [conc-producer-consumer, sys-idempotency]
+    bug_patterns:
+      - "messages are acked before processing, so a worker crash loses them forever"
+      - "processing takes longer than the visibility timeout, so another worker picks up the same job concurrently"
+      - "a malformed message fails forever and is retried in a tight loop, blocking the rest of the queue"
+      - "per-customer ordering is assumed even though messages for one customer are spread across partitions"
+    feature_patterns:
+      - "Add a dead-letter queue with max attempts and an inspection command"
+    beacons:
+      - "ack/nack/visibility/lease/attempts fields"
+      - "worker loops that catch exceptions around message handling"
+
+  - id: sys-timeouts-circuit-breakers
+    name: Timeouts & circuit breakers
+    region: systems
+    tier: 3
+    summary: "Every remote call needs a timeout; a circuit breaker stops hammering a failing dependency and lets a limited number of trial calls through when half-open."
+    prereqs: [sys-retries-backoff, eng-state-machines]
+    bug_patterns:
+      - "the breaker's failure count is never reset after a success, so it trips on the tenth error of the day"
+      - "in half-open state the breaker lets every waiting request through at once, re-overloading the dependency"
+      - "a downstream call has no timeout, so one hung dependency exhausts the worker pool"
+    feature_patterns:
+      - "Add a circuit breaker with open/half-open/closed states around a flaky integration"
+    beacons:
+      - "state fields like OPEN/HALF_OPEN/CLOSED, failure counters, cooldown timestamps"
+      - "remote calls without timeout="
+
+  - id: sys-optimistic-locking
+    name: Optimistic locking & lost updates
+    region: systems
+    tier: 3
+    summary: "Read-modify-write without a version check loses concurrent updates — include the version you read in the WHERE clause and fail (or retry) if nothing was updated."
+    prereqs: [sql-transactions, conc-threads-races]
+    bug_patterns:
+      - "two admins edit the same product; the second save silently overwrites the first admin's changes"
+      - "the version column is incremented on update but never checked in the WHERE clause"
+      - "the code doesn't check rowcount after a conditional UPDATE, so conflicts are reported as success"
+    feature_patterns:
+      - "Add conflict detection (409) to an update endpoint"
+    beacons:
+      - "version / etag / updated_at columns used on update"
+      - "UPDATE ... WHERE id = ? without a version predicate"
+
+  - id: sys-event-sourcing
+    name: Event sourcing & projections
+    region: systems
+    tier: 3
+    summary: "When state is derived by replaying events, events must be applied in order, handlers must be deterministic and idempotent, and old event shapes must remain replayable."
+    prereqs: [sys-idempotency, data-serialization-versioning]
+    bug_patterns:
+      - "the projection applies events sorted by timestamp instead of sequence number, so same-millisecond events reorder"
+      - "a projection handler calls datetime.now(), so replaying events produces different state than the original run"
+      - "an event field is renamed and every historical event now fails to replay"
+    feature_patterns:
+      - "Add a new read model (projection) built from existing events"
+    beacons:
+      - "apply(event) methods, event stores, sequence/version numbers"
+      - "snapshot and replay functions"
+
+  - id: sys-partitioning-sharding
+    name: Partitioning & sharding
+    region: systems
+    tier: 3
+    summary: "Partition by a key that spreads load and keeps related data together; plan how keys move when partitions are added, and watch for hot keys."
+    prereqs: [algo-consistent-hashing]
+    bug_patterns:
+      - "tenants are partitioned by the first letter of their name, so the 'S' shard handles a third of all traffic"
+      - "a range-partition lookup is off by one at partition boundaries, writing boundary keys to the wrong shard"
+      - "a cross-partition query only reads the local shard and silently returns partial results"
+    feature_patterns:
+      - "Add rebalancing that moves only the affected keys when a shard is added"
+    beacons:
+      - "shard_for(key) / partition functions and their boundaries"
+      - "fan-out queries across shards"
+
+  - id: sys-observability
+    name: "Observability — logs, metrics & traces"
+    region: systems
+    tier: 2
+    summary: "Counters only go up, gauges are point-in-time, histograms capture distributions — and a request ID has to be propagated explicitly into threads, tasks and downstream calls."
+    prereqs: [logging]
+    bug_patterns:
+      - "active_connections is modeled as a counter that's incremented but never decremented"
+      - "a user ID is used as a metric label, creating millions of time series"
+      - "the request ID stored in a thread-local is missing in logs from background tasks, so traces can't be stitched together"
+      - "access tokens are logged in full with request headers"
+    feature_patterns:
+      - "Add request-scoped context (request id) to logs across a code path"
+    beacons:
+      - "metrics.increment / gauge / histogram calls; contextvars / thread-locals"
+      - "log statements that dump whole requests or objects"
+
+  - id: sys-config-flags
+    name: Configuration & feature flags
+    region: systems
+    tier: 1
+    summary: "Environment variables are strings — bool('false') is True — config precedence must be explicit, and percentage rollouts need a stable per-user hash, not random() per request."
+    prereqs: [truthiness-none]
+    bug_patterns:
+      - "DEBUG = bool(os.environ.get('DEBUG', False)) is True when DEBUG=false is set, so debug mode ships to production"
+      - "int(os.environ['PORT']) crashes with KeyError in a fresh environment instead of using the documented default"
+      - "a 10% rollout uses random.random() < 0.1 per request, so users flip between old and new behavior on every page"
+      - "file config is loaded after environment variables, so env overrides never win despite the docs"
+    feature_patterns:
+      - "Add a feature flag with a percentage rollout and a per-user override"
+    beacons:
+      - "os.environ / getenv parsing; bool(...) on strings"
+      - "settings loaders merging multiple sources"
+
+  - id: sys-batch-processing
+    name: Batch processing & chunking
+    region: systems
+    tier: 2
+    summary: "Process large jobs in bounded chunks, flush the final partial chunk, make each chunk restartable, and isolate bad records instead of failing the whole batch."
+    prereqs: [iterators-generators, itertools]
+    bug_patterns:
+      - "records are flushed only when the buffer reaches 500, so the last 1-499 records are silently dropped"
+      - "one malformed record aborts a 2-hour job, and restarting reprocesses everything from the beginning"
+      - "the whole input is loaded into a list before chunking, defeating the point of batching"
+    feature_patterns:
+      - "Add resumable checkpoints to a long-running batch job"
+    beacons:
+      - "buffers with len(buffer) >= BATCH_SIZE flush checks"
+      - "checkpoint/offset/last_processed_id variables"
+
+  - id: sys-backpressure-streaming
+    name: Streaming & backpressure
+    region: systems
+    tier: 3
+    summary: "When producers outpace consumers, something must give — bounded buffers make the producer wait; unbounded ones just move the failure to an out-of-memory crash."
+    prereqs: [sys-batch-processing, conc-producer-consumer]
+    bug_patterns:
+      - "an ingestion service buffers incoming events in an unbounded list while the database is slow, and is OOM-killed"
+      - "a generator pipeline stage calls list() in the middle, materializing the entire stream"
+      - "a full buffer drops events silently instead of blocking or reporting"
+    feature_patterns:
+      - "Add bounded buffering with drop/slow-down policies and metrics"
+    beacons:
+      - "queues without maxsize; list() inside generator pipelines"
+      - "put_nowait / drop policies"
+
+  - id: sys-load-balancing
+    name: Load balancing & health checks
+    region: systems
+    tier: 3
+    summary: "Balancers choose healthy backends by a policy (round robin, weighted, least connections); health state must recover, and selection must be safe under concurrency."
+    prereqs: [sys-retries-backoff]
+    bug_patterns:
+      - "a backend marked unhealthy is never re-checked, so capacity shrinks permanently after a blip"
+      - "weighted selection uses cumulative weights with an off-by-one, so the last backend never receives traffic"
+      - "the round-robin index is incremented without a lock and two threads pick the same backend"
+    feature_patterns:
+      - "Add least-connections balancing with passive health checks"
+    beacons:
+      - "backend/pool lists, healthy flags, next index counters"
+      - "weights and cumulative sums"
+
+  - id: sys-distributed-time
+    name: Clocks & time in distributed systems
+    region: systems
+    tier: 3
+    summary: "Clocks on different machines disagree — don't order events or expire leases by comparing wall-clock timestamps from different hosts; use sequence numbers or a single time source."
+    prereqs: [clocks-and-uuid, sys-caching]
+    bug_patterns:
+      - "last-write-wins by client timestamp lets a device with a fast clock overwrite newer edits"
+      - "a lease is considered expired using the worker's clock, so two workers both believe they own the job"
+      - "TTLs are stored as absolute expiry times computed on one host and checked on another with a skewed clock"
+    feature_patterns:
+      - "Add lease-based job ownership with renewal"
+    beacons:
+      - "timestamps compared across services; expires_at / lease_until fields"
+      - "last-write-wins merge logic"
+
+  # ------------------------------------------------------------ practice ----
+  - id: eng-error-handling-design
+    name: Error-handling design
+    region: practice
+    tier: 2
+    summary: "Decide where each error is handled: validate and fail fast at boundaries, translate low-level errors into domain errors once, and never let 'handled' mean 'hidden'."
+    prereqs: [exception-chaining]
+    bug_patterns:
+      - "a service returns None on failure in some paths and raises in others, so callers check the wrong thing"
+      - "errors are caught and logged at three layers, producing three log lines and a generic 500 with no cause"
+      - "a partial failure in a batch returns success=True with no list of which items failed"
+    feature_patterns:
+      - "Add structured error results (code, message, field) across an API"
+    beacons:
+      - "functions returning None / False / error tuples on failure"
+      - "the same exception caught in several layers"
+
+  - id: eng-pytest
+    name: pytest fundamentals
+    region: practice
+    tier: 1
+    summary: "pytest discovers test_* functions, uses plain assert with rich failure output, and builds setup from fixtures — read conftest.py to learn how the app is wired for tests."
+    prereqs: []
+    bug_patterns:
+      - "assert (total == expected, 'totals differ') asserts a non-empty tuple and always passes"
+      - "a module-scoped fixture returns a mutable object that one test mutates, breaking later tests"
+      - "a parametrized test's expected values were copied from the buggy implementation, locking the bug in"
+    feature_patterns:
+      - "Add parametrized tests covering a new edge case table"
+    beacons:
+      - "tests/ layout, conftest.py fixtures, @pytest.mark.parametrize"
+      - "assert statements with parentheses around a tuple"
+
+  - id: eng-test-doubles
+    name: Test doubles & mocking seams
+    region: practice
+    tier: 2
+    summary: "Replace slow or external collaborators at a clean seam — injected clients and fakes beat deep patching — and make sure the double behaves like the real thing."
+    prereqs: [eng-pytest]
+    bug_patterns:
+      - "an in-memory fake repository returns objects by reference while the real one returns copies, hiding an aliasing bug"
+      - "the code under test is patched so deeply that the test only verifies the mock's configuration"
+      - "a fake clock is injected into one component but another component still reads the real time"
+    feature_patterns:
+      - "Introduce a fake implementation of an external service for tests"
+    beacons:
+      - "Fake*/InMemory* classes, injected clients, patch(...) calls"
+      - "constructor parameters like clock=, client=, repo="
+
+  - id: eng-test-isolation
+    name: Test isolation & flakiness
+    region: practice
+    tier: 2
+    summary: "Tests must not depend on order, wall-clock time, randomness or shared global state — every flaky test is a hidden dependency."
+    prereqs: [eng-pytest]
+    bug_patterns:
+      - "a test passes alone but fails in the full suite because an earlier test left data in a module-level registry"
+      - "a date-based test fails every month-end because it computes 'next month' from today"
+      - "a test depends on set iteration order and fails under a different hash seed"
+    feature_patterns:
+      - "Make a flaky test suite deterministic (fixtures, frozen time, seeded randomness)"
+    beacons:
+      - "module-level state touched by tests; datetime.now() inside code under test"
+      - "tests that pass alone but fail together"
+
+  - id: eng-property-testing
+    name: Property-based testing
+    region: practice
+    tier: 3
+    summary: "Instead of hand-picked examples, state properties that must hold for all inputs (round-trips, invariants, idempotence) and let hypothesis search for counterexamples."
+    prereqs: [eng-pytest]
+    bug_patterns:
+      - "an encode/decode pair fails on empty strings and non-ASCII input that example-based tests never tried"
+      - "a sort-and-merge routine drops elements for inputs with duplicates, found only by an invariant check"
+      - "a property test uses assume() so aggressively that it checks almost nothing"
+    feature_patterns:
+      - "Add property tests for a parser, serializer or allocation algorithm"
+    beacons:
+      - "@given strategies, round-trip functions (encode/decode, dump/load)"
+      - "invariants stated in docstrings but never tested"
+
+  - id: eng-refactoring
+    name: Refactoring safely
+    region: practice
+    tier: 2
+    summary: "A refactor changes structure, not behavior — lock behavior with tests first, move in small steps, and watch for subtle semantic changes (evaluation order, defaults, laziness)."
+    prereqs: [eng-pytest]
+    bug_patterns:
+      - "an 'extract function' refactor moves a default argument that used to be evaluated per call into the signature"
+      - "replacing a list comprehension with a generator expression changes behavior because the result is iterated twice"
+      - "consolidating two nearly identical functions drops the one condition that made them differ"
+    feature_patterns:
+      - "Remove duplication between two handlers while keeping behavior identical"
+    beacons:
+      - "duplicated blocks with small differences"
+      - "recent 'cleanup' or 'refactor' commits near the bug"
+
+  - id: eng-separation-of-concerns
+    name: Separation of concerns & dependency injection
+    region: practice
+    tier: 2
+    summary: "Keep a pure core (domain logic) apart from the shell (I/O, time, randomness, frameworks) and pass dependencies in — it makes code testable and changes local."
+    prereqs: [eng-refactoring]
+    bug_patterns:
+      - "pricing rules live inside an HTTP handler, so the CLI reimplements them and the two drift apart"
+      - "a domain function calls datetime.now() directly, making it untestable at month boundaries"
+      - "a global database singleton is imported everywhere, so tests accidentally write to the dev database file"
+    feature_patterns:
+      - "Extract business logic from a handler into a testable service"
+    beacons:
+      - "I/O, time or randomness called directly inside business logic"
+      - "module-level singletons (db, client, settings) imported across layers"
+
+  - id: eng-api-design
+    name: Function & API interface design
+    region: practice
+    tier: 2
+    summary: "Interfaces should be hard to misuse: keyword-only flags, explicit errors instead of None, consistent return types, and additive (backward-compatible) changes."
+    prereqs: [args-kwargs, truthiness-none]
+    bug_patterns:
+      - "export(data, True, False) — a boolean trap where callers swap two positional flags"
+      - "a function returns a list normally but a single object when there's one result, breaking iteration"
+      - "a response field changes type from int to str in a 'minor' update and breaks every client"
+    feature_patterns:
+      - "Extend an existing function or endpoint without breaking current callers"
+    beacons:
+      - "positional booleans; return types that vary by branch"
+      - "public functions used from many modules"
+
+  - id: eng-input-validation
+    name: Validation at trust boundaries
+    region: practice
+    tier: 2
+    summary: "Validate untrusted input once, at the boundary where it enters, before anything else uses it — and never trust client-supplied IDs, prices or roles."
+    prereqs: [data-validation-cleaning]
+    bug_patterns:
+      - "an order endpoint accepts a client-supplied unit_price instead of looking up the price server-side"
+      - "the API validates the payload after writing it to the database"
+      - "any user can read another user's invoice by changing the id in the URL (no ownership check)"
+    feature_patterns:
+      - "Add request validation with clear field-level errors"
+    beacons:
+      - "request payload fields used directly in business logic"
+      - "lookups by id without an ownership/permission check"
+
+  - id: eng-security-basics
+    name: Security basics for Python code
+    region: practice
+    tier: 2
+    summary: "Most real vulnerabilities are ordinary bugs: injection, path traversal, unsafe deserialization (pickle, yaml.load), secrets in logs and timing-unsafe comparisons."
+    prereqs: [sql-parameterized-queries, pathlib-os]
+    bug_patterns:
+      - "a download handler joins a user-supplied filename to the storage dir, so '../../settings.py' is served"
+      - "session data is stored with pickle and loaded from a cookie, allowing arbitrary code execution"
+      - "an API key is compared with == and also written to the debug log"
+      - "yaml.load(..., Loader=yaml.Loader) is used on uploaded config files"
+    feature_patterns:
+      - "Add safe file download/upload handling with path validation"
+    beacons:
+      - "pickle.loads, yaml.Loader, eval/exec, shell=True"
+      - "file paths or queries built from request data"
+
+  - id: eng-performance-profiling
+    name: Performance & profiling
+    region: practice
+    tier: 2
+    summary: "Measure before optimizing: the slow part is usually one hot loop or one repeated I/O call, and algorithmic fixes beat micro-optimizations."
+    prereqs: [algo-complexity]
+    bug_patterns:
+      - "a report recomputes the same expensive aggregate once per row instead of once per report"
+      - "a regex or template is compiled inside a function called millions of times"
+      - "a 'fast path' cache is keyed by an object that is recreated per call, so it never hits"
+    feature_patterns:
+      - "Make a slow operation meet a stated latency budget with a benchmark test"
+    beacons:
+      - "work inside loops that doesn't depend on the loop variable"
+      - "timing/profiling hooks, perf-related TODOs"
+
+  - id: eng-debugging-technique
+    name: Debugging technique
+    region: practice
+    tier: 1
+    summary: "Reproduce first, then narrow down: read the traceback bottom-up, form one hypothesis at a time, and bisect the code path (or the history) instead of guessing."
+    prereqs: []
+    bug_patterns:
+      - "the traceback points into a library, but the bad value was created three frames up in application code"
+      - "a symptom-level fix (catching the exception) hides the real cause, which then corrupts data elsewhere"
+      - "a log message says 'saved' before the save actually happens, sending the investigation the wrong way"
+    feature_patterns:
+      - "Add diagnostic logging that would have made the last incident obvious"
+    beacons:
+      - "tracebacks and log excerpts in bug reports"
+      - "error messages that can be grepped for verbatim"
+
+  - id: eng-readable-idioms
+    name: Readable, idiomatic Python
+    region: practice
+    tier: 1
+    summary: "Clear names, guard clauses, early returns and small functions make bugs visible — and idioms like enumerate, zip, any/all and unpacking say what code means."
+    prereqs: []
+    bug_patterns:
+      - "deeply nested if/else hides an inverted condition in one branch"
+      - "a manual index loop (for i in range(len(xs))) reads xs[i + 1] and runs off the end"
+      - "a flag variable named `done` actually means 'skip', and a later edit uses it backwards"
+    feature_patterns:
+      - "Add a feature to a function that first needs a small readability cleanup"
+    beacons:
+      - "range(len(...)) loops; nesting deeper than three levels"
+      - "vague names (data, tmp, flag, x2) carrying important meaning"
+
+  - id: eng-packaging-structure
+    name: Packaging & project structure
+    region: practice
+    tier: 2
+    summary: "How code is laid out decides how it imports: run modules with python -m from the project root, keep one import root, and declare entry points in pyproject.toml."
+    prereqs: [imports-and-modules]
+    bug_patterns:
+      - "a script works as `python app/cli.py` but fails as an installed command because it relies on the script's directory being on sys.path"
+      - "a local module named email.py or logging.py shadows the stdlib module of the same name"
+      - "a relative import beyond the top-level package fails only when the module is run directly"
+    feature_patterns:
+      - "Add a new console entry point / subpackage to an existing project"
+    beacons:
+      - "sys.path manipulation, relative imports, if __name__ == '__main__' blocks"
+      - "module names that match stdlib modules"
+
+  - id: eng-static-typing
+    name: Static typing in practice
+    region: practice
+    tier: 2
+    summary: "A type checker only helps where types are honest — narrow Optionals before use, avoid Any leaking through boundaries, and treat cast() and '# type: ignore' as red flags."
+    prereqs: [type-hints]
+    bug_patterns:
+      - "cast(User, maybe_user) silences the checker while the value can still be None at runtime"
+      - "a json.loads() result typed as Any flows through the codebase, so misspelled keys are never flagged"
+      - "a '# type: ignore' added to quiet an error hides a real argument-order mistake"
+    feature_patterns:
+      - "Add precise types to a module and fix the issues the checker finds"
+    beacons:
+      - "cast(...), Any, # type: ignore"
+      - "Optional values used without an is None check"
+
+  - id: eng-state-machines
+    name: State machines & invariants
+    region: practice
+    tier: 2
+    summary: "Model lifecycles (orders, jobs, bookings) as explicit states with allowed transitions — bugs appear when any code can set any status at any time."
+    prereqs: [enums]
+    bug_patterns:
+      - "a shipped order can still be cancelled because cancel() doesn't check the current state"
+      - "a status is a free-form string and one code path writes 'canceled' while another checks for 'cancelled'"
+      - "a retry resets a failed job to PENDING without clearing its error, so the UI shows it as both pending and failed"
+    feature_patterns:
+      - "Add a new state (e.g. ON_HOLD) with its allowed transitions"
+    beacons:
+      - "status/state fields assigned in many places"
+      - "transition tables, can_transition helpers, Enum-based states"
+
+  # ----------------------------------------------------------- ecosystem ----
+  - id: lib-pydantic
+    name: pydantic models
+    region: ecosystem
+    tier: 2
+    summary: "pydantic validates and coerces at the boundary — know lax vs strict coercion, that Optional without a default is still required in v2, and what model_dump() emits."
+    prereqs: [type-hints, data-validation-cleaning]
+    bug_patterns:
+      - "a field typed Optional[str] with no default is required in pydantic v2, so clients that omit it get 422 errors"
+      - "a PATCH handler applies model_dump() instead of model_dump(exclude_unset=True), resetting omitted fields to defaults"
+      - "lax mode coerces 'false'/'no'/'0' to False while the old hand-written parser treated any non-empty string as True"
+      - "an alias is used for input but populate_by_name isn't set, so internal callers using the field name fail validation"
+    feature_patterns:
+      - "Add a new request/response model with validators and clear errors"
+    beacons:
+      - "BaseModel subclasses, Field(...), @field_validator / @model_validator"
+      - "model_dump / model_validate calls and their options"
+
+  - id: lib-fastapi
+    name: FastAPI services
+    region: ecosystem
+    tier: 2
+    summary: "FastAPI matches routes in declaration order, validates with pydantic, runs sync endpoints in a threadpool but async endpoints on the event loop — so blocking inside async def stalls everything."
+    prereqs: [lib-pydantic, decorators]
+    bug_patterns:
+      - "GET /users/{user_id} is declared before GET /users/me, so /users/me returns 422 trying to parse 'me' as an int"
+      - "an async def endpoint calls a blocking function, serializing all requests"
+      - "a create endpoint returns 200 instead of 201 and the client's retry logic misbehaves"
+      - "no response_model is declared, so an internal field (password_hash) leaks into responses"
+    feature_patterns:
+      - "Add a new endpoint with validation, dependency injection and tests via TestClient"
+    beacons:
+      - "@app.get/@router.post decorators and their order; Depends(...)"
+      - "async def endpoints and what they call"
+
+  - id: lib-sqlalchemy-orm
+    name: SQLAlchemy ORM sessions
+    region: ecosystem
+    tier: 3
+    summary: "The Session is a unit of work with an identity map: objects expire on commit, lazy relationships query on access, and touching them after the session closes raises DetachedInstanceError."
+    prereqs: [sql-transactions, sql-n-plus-one]
+    bug_patterns:
+      - "a repository returns ORM objects after closing the session, and the view accessing order.items raises DetachedInstanceError"
+      - "iterating orders and touching order.customer lazily issues one query per order (use selectinload/joinedload)"
+      - "session.add(obj) is called but nothing commits, so the write vanishes at the end of the request"
+      - "a long-lived session's identity map returns stale objects that another process has already updated"
+    feature_patterns:
+      - "Add a query with eager loading and pagination through the ORM"
+    beacons:
+      - "Session / sessionmaker usage, relationship(), select(...) statements"
+      - "commit/flush/refresh/expire calls"
+
+  - id: lib-httpx
+    name: httpx HTTP clients
+    region: ecosystem
+    tier: 2
+    summary: "Reuse one Client for connection pooling, set explicit timeouts, call raise_for_status() (errors aren't raised by default), and test with MockTransport instead of the network."
+    prereqs: [exception-handling, eng-test-doubles]
+    bug_patterns:
+      - "response.json() is parsed without raise_for_status(), so a 503 error body is treated as an empty result"
+      - "a new httpx.Client is created per call and never closed, leaking connections"
+      - "timeout=None is passed to 'be safe', so a hung upstream blocks the worker forever"
+    feature_patterns:
+      - "Add a typed client for a (fake) partner API with retries and MockTransport tests"
+    beacons:
+      - "httpx.Client/AsyncClient construction and lifetime; timeout= arguments"
+      - "response.json() without status checks"
+
+  - id: lib-click
+    name: click command-line apps
+    region: ecosystem
+    tier: 2
+    summary: "click builds CLIs from decorated functions — mind flag vs option semantics, multiple=True returning tuples, and exit codes, and test with CliRunner."
+    prereqs: [decorators]
+    bug_patterns:
+      - "a command prints 'Error: ...' but returns normally with exit code 0, so shell scripts chained with && keep going"
+      - "a --tag option is declared without multiple=True, so the handler iterates the single string value character by character"
+      - "a CliRunner test only checks output text, missing that the command raised (result.exception is set)"
+    feature_patterns:
+      - "Add a new subcommand with options, validation and CliRunner tests"
+    beacons:
+      - "@click.command/@click.group/@click.option decorators"
+      - "ctx.exit / sys.exit / raise click.ClickException"
+
+  - id: lib-attrs
+    name: attrs classes
+    region: ecosystem
+    tier: 2
+    summary: "attrs classes (@define) get validators and converters; with the modern API validators also run on attribute assignment, and slots=True by default forbids ad-hoc attributes."
+    prereqs: [dataclasses]
+    bug_patterns:
+      - "a converter strips whitespace on init but a legacy classic @attr.s class doesn't re-run it on assignment"
+      - "code sets an undeclared attribute on a slotted @define class and crashes with AttributeError"
+      - "a field with converter=int raises a bare ValueError from deep inside __init__ for an empty string, so the importer shows a cryptic error instead of a field-level message"
+    feature_patterns:
+      - "Add a validated value type (Money, Email, Percentage) with attrs"
+    beacons:
+      - "@define / @attr.s / field(validator=..., converter=...)"
+      - "on_setattr settings"
+
+  - id: lib-dateutil
+    name: dateutil (relativedelta, rrule, parser)
+    region: ecosystem
+    tier: 2
+    summary: "relativedelta does calendar-aware month math but clamps to month ends (Jan 31 + 1 month = Feb 28/29), so chained additions drift; parse() guesses ambiguous dates."
+    prereqs: [datetime-timezones]
+    bug_patterns:
+      - "a subscription renews by adding relativedelta(months=1) to the previous renewal date, so the 31st drifts to the 28th forever"
+      - "parser.parse('03/04/2025') is read as March 4 while European partners meant April 3"
+      - "an rrule without a timezone-aware dtstart produces occurrences that shift by an hour across DST"
+    feature_patterns:
+      - "Add monthly/annual renewals anchored to the original start date"
+    beacons:
+      - "relativedelta(months=...), rrule(...), parser.parse(...)"
+      - "renewal/next_run dates computed from the previous occurrence"
+
+  - id: lib-jinja2
+    name: Jinja2 templates
+    region: ecosystem
+    tier: 2
+    summary: "A plain jinja2.Environment() does not autoescape HTML, and missing variables render as empty strings unless you use StrictUndefined."
+    prereqs: [string-handling]
+    bug_patterns:
+      - "customer-supplied names are rendered into an HTML email template without autoescaping, allowing script injection"
+      - "a typo in a template variable ({{ custmer.name }}) renders as blank instead of failing the render"
+      - "| safe is applied to user-controlled content to make formatting work, re-opening XSS"
+    feature_patterns:
+      - "Add a new rendered document/email with safe escaping and strict variables"
+    beacons:
+      - "Environment(...) autoescape / undefined settings"
+      - "| safe filters and Markup(...)"
+
+  - id: lib-pyyaml
+    name: PyYAML & config files
+    region: ecosystem
+    tier: 2
+    summary: "Use yaml.safe_load, and remember YAML 1.1 typing: yes/no/on/off are booleans, 1.10 is the float 1.1, and unquoted 22:22 can become a number."
+    prereqs: [json-serialization]
+    bug_patterns:
+      - "a version field 'version: 1.10' loads as the float 1.1, so version checks think the config is older"
+      - "country code NO in a YAML list loads as False"
+      - "yaml.load with the full Loader is used on user-uploaded files, allowing arbitrary object construction"
+    feature_patterns:
+      - "Add schema validation for a YAML config file with helpful errors"
+    beacons:
+      - "yaml.load / safe_load / dump calls"
+      - "unquoted scalars that look like booleans, times or versions"
+
+  - id: lib-networkx
+    name: networkx graphs
+    region: ecosystem
+    tier: 2
+    summary: "networkx creates nodes implicitly when you add edges, distinguishes Graph from DiGraph, and ignores weights in shortest_path unless you pass weight=."
+    prereqs: [ds-graphs]
+    bug_patterns:
+      - "a typo in an edge endpoint silently creates a phantom node instead of raising"
+      - "a Graph is used for one-way dependencies, so reversed edges make everything reachable"
+      - "nx.shortest_path(G, a, b) is called without weight='cost', returning the fewest-hops path instead of the cheapest"
+    feature_patterns:
+      - "Add a graph analysis (critical path, connected groups) using networkx"
+    beacons:
+      - "nx.Graph()/DiGraph(); add_edge / shortest_path calls and their keyword args"
+      - "edge attribute names like weight/cost/distance"
+
+  - id: lib-pandas-indexing
+    name: pandas indexing & copy semantics
+    region: ecosystem
+    tier: 2
+    summary: "Use .loc (labels, inclusive slices) and .iloc (positions, exclusive slices) explicitly; chained assignment like df[mask]['col'] = x never modifies df; assignment aligns on the index."
+    prereqs: [slicing-off-by-one, names-and-binding]
+    bug_patterns:
+      - "df[df.status == 'late']['fee'] = 25 has no effect on df, so late fees are never applied"
+      - "df.loc[0:10] returns 11 rows because label slices include the end, double-counting a boundary"
+      - "a Series with a different index is assigned as a new column, filling unmatched rows with NaN"
+      - "df = df.dropna(inplace=True) sets df to None"
+    feature_patterns:
+      - "Add a derived column with conditional logic to an existing DataFrame pipeline"
+    beacons:
+      - "chained indexing df[...][...] = ...; inplace=True"
+      - "loc vs iloc slices; assignments of Series to columns"
+
+  - id: lib-pandas-groupby-merge
+    name: pandas groupby, merge & missing data
+    region: ecosystem
+    tier: 2
+    summary: "Merging on non-unique keys multiplies rows, groupby drops NaN keys by default, and NaN changes dtypes and comparisons (NaN != NaN)."
+    prereqs: [lib-pandas-indexing]
+    bug_patterns:
+      - "orders are merged with a prices table that has duplicate SKUs, doubling revenue in the monthly report"
+      - "groupby('region') silently drops rows whose region is missing, so totals don't add up"
+      - "an int column with a missing value becomes float, and IDs are exported as 1234.0"
+      - "df[df.col == np.nan] never matches anything; isna() was needed"
+    feature_patterns:
+      - "Add a monthly aggregate report with joins to reference data"
+    beacons:
+      - "merge/join calls (check key uniqueness, validate=...)"
+      - "groupby(...).agg(...), fillna, astype"
+
+  - id: lib-numpy
+    name: NumPy arrays
+    region: ecosystem
+    tier: 2
+    summary: "NumPy arrays have fixed dtypes that overflow silently, slices are views that alias the original, and broadcasting will happily combine shapes you didn't intend."
+    prereqs: [numeric-semantics]
+    bug_patterns:
+      - "pixel values in a uint8 array are subtracted and wrap around (10 - 20 = 246), producing bright artifacts"
+      - "window = signal[100:200]; window -= baseline modifies the original signal in place"
+      - "an (n,) array minus an (n, 1) array broadcasts to (n, n) instead of raising a shape error"
+      - "means are computed with axis=0 where per-row (axis=1) was intended"
+    feature_patterns:
+      - "Vectorize a slow per-element Python loop with correct dtypes"
+    beacons:
+      - "dtype= arguments, astype, uint8/int32 arrays"
+      - "slicing followed by in-place operations; axis= arguments"
+
+  - id: lib-freezegun
+    name: Time travel in tests (freezegun)
+    region: ecosystem
+    tier: 2
+    summary: "Code that reads the clock needs frozen or injected time to be testable — and values captured at import time (defaults, module constants) aren't moved by freeze_time."
+    prereqs: [datetime-timezones, eng-pytest]
+    bug_patterns:
+      - "a test for 'expires after 30 days' passes except on the 31st day of some months because it uses the real clock"
+      - "a module-level START_TIME = datetime.now() isn't affected by freeze_time, so a frozen test still sees import time"
+      - "freeze_time('2025-03-31 23:30') is interpreted as UTC while the code derives 'today' in the store's local zone, so the test silently checks the wrong day"
+    feature_patterns:
+      - "Add deterministic tests for expiry, scheduling or business-hours logic"
+    beacons:
+      - "@freeze_time / freeze_time(...) blocks"
+      - "datetime.now() read at import time or in default arguments"

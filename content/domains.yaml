@@ -1,0 +1,1099 @@
+# Cold Start domain catalog — the "clients" whose codebases you get dropped into.
+#
+# The architect picks one domain per case (avoiding recent repeats). `shapes`
+# are the codebase styles that fit the domain; `affinities` are concept ids
+# (from concepts.yaml) that show up naturally there. Every system must run
+# fully offline: fake HTTP layers, in-memory services, sqlite, local files.
+#
+# shapes: service | cli | library | pipeline | worker | simulation | interpreter
+
+domains:
+  # ----------------------------------------------------------- transport ----
+  - id: ferry-booking
+    name: Ferry booking & seat allocation
+    sector: transport
+    flavor: "A regional ferry operator's booking backend: sailings, vehicle deck lanes measured in meters, fare classes, and seat holds that expire if unpaid."
+    shapes: [service, library]
+    affinities: [ds-intervals, datetime-timezones, decimal-money]
+
+  - id: transit-transfer-planner
+    name: Transit transfer planner
+    sector: transport
+    flavor: "A city transit authority's journey planner: timetables, walking transfers between stops, and 'arrive by' queries that must respect minimum connection times."
+    shapes: [library, cli]
+    affinities: [algo-dijkstra, algo-calendar-scheduling, ds-graphs, algo-binary-search]
+
+  - id: car-rental-fleet
+    name: Car rental fleet management
+    sector: transport
+    flavor: "A car rental company's fleet system: vehicles move between available, rented and in-maintenance, pickups and drop-offs span branches, and late returns incur fees."
+    shapes: [service]
+    affinities: [eng-state-machines, ds-intervals, decimal-money, enums]
+
+  - id: bike-share-rebalancing
+    name: Bike-share rebalancing
+    sector: transport
+    flavor: "A bike-share operator's overnight planner that decides which vans move how many bikes between docks based on predicted morning demand."
+    shapes: [simulation, worker]
+    affinities: [ds-heaps, algo-greedy, algo-numeric-geometry, algo-simulation]
+
+  - id: parking-garage-billing
+    name: Parking garage occupancy & billing
+    sector: transport
+    flavor: "A downtown garage chain's gate and billing system: entry/exit events, hourly rates with daily caps, monthly permits and lost-ticket rules."
+    shapes: [service, library]
+    affinities: [datetime-timezones, decimal-money, numeric-semantics, truthiness-none]
+
+  - id: ride-surge-pricing
+    name: Ride-hailing surge pricing
+    sector: transport
+    flavor: "A ride-hailing marketplace's pricing service that computes surge multipliers per city zone from rolling counts of ride requests and available drivers."
+    shapes: [service]
+    affinities: [algo-sliding-window, sys-caching, numeric-semantics, decimal-money]
+
+  - id: flight-crew-scheduling
+    name: Flight crew duty scheduling
+    sector: travel
+    flavor: "An airline's crew-rostering tool that assigns pilots and cabin crew to flights while enforcing rest rules, duty-hour caps and return-to-base constraints."
+    shapes: [library, service]
+    affinities: [algo-greedy, ds-intervals, datetime-timezones, eng-state-machines]
+
+  - id: hotel-overbooking
+    name: Hotel room allocation & overbooking
+    sector: travel
+    flavor: "A boutique hotel group's reservation engine: room types, controlled overbooking percentages, free upgrades and the walk-in guest at 11 pm."
+    shapes: [service]
+    affinities: [ds-intervals, sys-optimistic-locking, algo-greedy, sorting-keys, algo-sort-and-sweep]
+
+  - id: elevator-controller
+    name: Elevator bank controller
+    sector: buildings
+    flavor: "The dispatch logic for an office tower's elevator bank: hall calls, car calls, direction rules, and an up-peak mode for 9 am rush."
+    shapes: [simulation]
+    affinities: [eng-state-machines, ds-heaps, algo-simulation, sorting-keys]
+
+  - id: traffic-light-controller
+    name: Traffic light controller
+    sector: civic
+    flavor: "A city's intersection controller: signal phases, minimum green times, pedestrian push-buttons and emergency-vehicle preemption."
+    shapes: [simulation]
+    affinities: [eng-state-machines, enums, clocks-and-uuid, pattern-matching]
+
+  # ----------------------------------------------------------- logistics ----
+  - id: delivery-route-planning
+    name: Delivery route planning
+    sector: logistics
+    flavor: "A regional courier's route planner that sequences parcel stops for each van with delivery time windows, road-network distances and driver shift limits."
+    shapes: [library]
+    affinities: [algo-dijkstra, algo-numeric-geometry, ds-heaps, algo-greedy]
+
+  - id: warehouse-picking
+    name: Warehouse inventory & pick paths
+    sector: logistics
+    flavor: "A fulfillment center's picking system: bins on a grid of aisles, pick lists batched per trolley, and stock counts that must never go negative."
+    shapes: [service, library]
+    affinities: [ds-grids, algo-bfs-dfs, defaultdict-counter, conc-threads-races]
+
+  - id: food-delivery-dispatch
+    name: Food delivery dispatch
+    sector: logistics
+    flavor: "A food delivery startup's dispatcher that assigns couriers to orders by distance and prep time, and batches two nearby orders into one trip."
+    shapes: [worker, service]
+    affinities: [ds-heaps, algo-numeric-geometry, async-tasks-cancellation, algo-greedy]
+
+  - id: airport-baggage-routing
+    name: Airport baggage routing
+    sector: logistics
+    flavor: "An airport's baggage-handling controller: conveyor segments form a graph, bag tags are scanned at junctions, and transfer bags race tight connections."
+    shapes: [simulation, library]
+    affinities: [algo-bfs-dfs, ds-graphs, conc-producer-consumer, ds-stacks-queues]
+
+  - id: parcel-tracking
+    name: Parcel tracking timeline
+    sector: logistics
+    flavor: "A parcel carrier's tracking service that merges scan events from depots, trucks and partner carriers into one customer-facing timeline — even when events arrive late or twice."
+    shapes: [service]
+    affinities: [sorting-keys, datetime-timezones, sys-idempotency, dict-semantics]
+
+  - id: cold-chain-monitoring
+    name: Cold-chain temperature monitoring
+    sector: logistics
+    flavor: "A pharma logistics firm's monitor for refrigerated shipments: trackers stream temperature readings, and any excursion above 8°C must be flagged within minutes."
+    shapes: [pipeline, worker]
+    affinities: [algo-sliding-window, ds-ring-buffers, datetime-timezones, numeric-semantics]
+
+  - id: warehouse-robot-fleet
+    name: Warehouse robot fleet
+    sector: logistics
+    flavor: "A simulated fleet of warehouse robots that reserve grid cells, plan paths to shelves and must never deadlock at intersections."
+    shapes: [simulation]
+    affinities: [ds-grids, algo-bfs-dfs, conc-locks-deadlocks, ds-heaps]
+
+  - id: shipping-rate-cards
+    name: Shipping rate cards
+    sector: logistics
+    flavor: "A shipping aggregator's quote engine: carrier rate cards with weight brackets, dimensional weight, zone tables and fuel surcharges."
+    shapes: [library]
+    affinities: [heapq-bisect, decimal-money, data-validation-cleaning, csv-and-file-io]
+
+  # ------------------------------------------------------------ commerce ----
+  - id: cart-promotions
+    name: Cart discounts & promotions
+    sector: commerce
+    flavor: "An online store's promotion engine: stacking rules, buy-X-get-Y offers, coupon codes with usage limits, and the eternal question of what gets rounded when."
+    shapes: [library, service]
+    affinities: [decimal-money, truthiness-none, sorting-keys, eng-state-machines]
+
+  - id: auction-engine
+    name: Online auction engine
+    sector: commerce
+    flavor: "A collectibles auction house's bidding engine: proxy bids, bid increments by price band, anti-sniping extensions and reserve prices."
+    shapes: [service, library]
+    affinities: [conc-threads-races, sys-optimistic-locking, decimal-money, ordering-dunders]
+
+  - id: marketplace-search
+    name: Marketplace listing search
+    sector: commerce
+    flavor: "A second-hand marketplace's search API: keyword matching, price and condition filters, and cursor pagination that must not skip listings."
+    shapes: [service]
+    affinities: [algo-string-matching, sql-indexes-pagination, lib-fastapi, sql-parameterized-queries]
+
+  - id: returns-processing
+    name: Retail returns & refunds
+    sector: commerce
+    flavor: "A retailer's returns portal: return windows, partial refunds per line item, restocking fees, and refunds that must never be issued twice."
+    shapes: [service]
+    affinities: [eng-state-machines, sys-idempotency, decimal-money, datetime-timezones]
+
+  - id: event-ticketing
+    name: Event ticketing with seat holds
+    sector: commerce
+    flavor: "A concert ticketing platform: reserved-seat maps, 10-minute holds during checkout, and a stampede of buyers the moment a show goes on sale."
+    shapes: [service]
+    affinities: [sys-optimistic-locking, clocks-and-uuid, ds-grids, conc-threads-races]
+
+  - id: vending-machine
+    name: Vending machine controller
+    sector: commerce
+    flavor: "The controller for a smart vending machine: coin and card payments, change-making from limited coin tubes, and jammed-slot handling."
+    shapes: [simulation, library]
+    affinities: [eng-state-machines, decimal-money, algo-greedy, enums]
+
+  - id: real-estate-geo-search
+    name: Real-estate geo search
+    sector: commerce
+    flavor: "A property listings site's search: radius and bounding-box queries, price filters, and saved searches that alert when new homes match."
+    shapes: [service]
+    affinities: [algo-numeric-geometry, ds-sorted-containers, sql-indexes-pagination, lib-pydantic]
+
+  - id: real-time-bidding
+    name: Ad auction server
+    sector: adtech
+    flavor: "An ad server's real-time auction: bid requests, targeting filters, per-campaign budget pacing and second-price clearing."
+    shapes: [service]
+    affinities: [sys-caching, sys-rate-limiting, decimal-money, ds-heaps]
+
+  # --------------------------------------------------------- hospitality ----
+  - id: restaurant-reservations
+    name: Restaurant reservations & tables
+    sector: hospitality
+    flavor: "A restaurant group's booking system: tables that combine for large parties, seating durations by party size, and a waitlist for walk-ins."
+    shapes: [service]
+    affinities: [ds-intervals, datetime-timezones, algo-greedy, ds-stacks-queues]
+
+  - id: kitchen-display
+    name: Kitchen display & ticket timing
+    sector: hospitality
+    flavor: "A kitchen display system that routes order tickets to stations, fires courses in sequence and tracks how long each ticket has been waiting."
+    shapes: [service, worker]
+    affinities: [ds-heaps, eng-state-machines, clocks-and-uuid, deque, class-vs-instance-attributes]
+
+  - id: recipe-scaling
+    name: Recipe scaling & unit conversion
+    sector: food
+    flavor: "A meal-kit company's recipe tool that scales ingredient quantities, converts between metric and US units, and rounds to amounts a person can actually measure."
+    shapes: [library, cli]
+    affinities: [numeric-semantics, data-validation-cleaning, dict-semantics, string-handling]
+
+  - id: nutrition-tracker
+    name: Nutrition tracker
+    sector: health
+    flavor: "A nutrition-logging app's backend: food database lookups, per-meal macro totals, daily goals and imports from a CSV of barcode scans."
+    shapes: [library, cli]
+    affinities: [numeric-semantics, defaultdict-counter, data-validation-cleaning, csv-and-file-io]
+
+  # ------------------------------------------------------------- fintech ----
+  - id: double-entry-ledger
+    name: Double-entry ledger
+    sector: fintech
+    flavor: "An accounting startup's ledger: journal entries whose debits must equal credits, nested account hierarchies and period-close balances."
+    shapes: [library, service]
+    affinities: [decimal-money, sql-transactions, eng-error-handling-design, ds-trees, algo-prefix-sums]
+
+  - id: multi-currency-wallet
+    name: Multi-currency wallet
+    sector: fintech
+    flavor: "A travel-money app's wallet service: balances in many currencies, FX conversion with spreads, and transfers that must happen exactly once."
+    shapes: [service]
+    affinities: [decimal-money, sys-idempotency, sys-optimistic-locking, sys-caching]
+
+  - id: subscription-billing
+    name: Subscription billing with proration
+    sector: fintech
+    flavor: "A SaaS company's billing service: plan upgrades mid-cycle, proration credits, free trials and renewal dates anchored to the signup day."
+    shapes: [service, library]
+    affinities: [decimal-money, lib-dateutil, algo-calendar-scheduling, eng-state-machines]
+
+  - id: invoice-tax
+    name: Invoice generation & VAT
+    sector: fintech
+    flavor: "A wholesaler's invoicing module: line items, per-line VAT rates, credit notes and invoice rendering through templates."
+    shapes: [library, cli]
+    affinities: [decimal-money, numeric-semantics, lib-jinja2, dataclasses, properties-cached]
+
+  - id: portfolio-rebalancing
+    name: Portfolio rebalancing
+    sector: fintech
+    flavor: "A robo-advisor's rebalancer that compares holdings to target allocations and proposes trades within drift bands and minimum trade sizes."
+    shapes: [library, cli]
+    affinities: [decimal-money, algo-greedy, lib-pandas-groupby-merge, sorting-keys]
+
+  - id: loan-amortization
+    name: Loan amortization
+    sector: fintech
+    flavor: "A credit union's loan-servicing library: amortization schedules, extra payments, daily interest accrual and payoff quotes."
+    shapes: [library, service]
+    affinities: [decimal-money, lib-dateutil, numeric-semantics, algo-calendar-scheduling]
+
+  - id: fraud-rules-engine
+    name: Fraud rules engine
+    sector: fintech
+    flavor: "A payments company's fraud screen: velocity rules over sliding windows, a small rule language written by analysts, and allow/deny lists."
+    shapes: [service, interpreter]
+    affinities: [algo-sliding-window, algo-parsing, sys-caching, set-semantics]
+
+  - id: payroll-hourly
+    name: Payroll for hourly workers
+    sector: fintech
+    flavor: "A payroll processor for restaurants and shops: clock-in/out punches, overtime rules, overnight shifts and withholding tables."
+    shapes: [library, cli]
+    affinities: [decimal-money, datetime-timezones, csv-and-file-io, numeric-semantics]
+
+  - id: expense-splitting
+    name: Group expense splitting
+    sector: fintech
+    flavor: "A group-trip expense app that tracks who paid for what, splits costs by shares, and settles debts with the fewest possible transfers."
+    shapes: [service, library]
+    affinities: [decimal-money, algo-greedy, defaultdict-counter, dict-semantics, mutable-defaults]
+
+  - id: budgeting-app
+    name: Personal budgeting app
+    sector: fintech
+    flavor: "A personal budgeting tool that imports bank CSV exports, categorizes transactions with user-defined rules and tracks monthly envelopes."
+    shapes: [cli, library]
+    affinities: [csv-and-file-io, lib-dateutil, decimal-money, regex]
+
+  - id: crypto-wallet-history
+    name: Crypto wallet history (offline)
+    sector: fintech
+    flavor: "An offline tax helper that reconstructs a crypto wallet's cost basis from exported transaction files using first-in-first-out lots."
+    shapes: [library, cli]
+    affinities: [decimal-money, data-validation-cleaning, sorting-keys, deque]
+
+  - id: payment-reconciliation
+    name: Payment reconciliation
+    sector: fintech
+    flavor: "A marketplace's finance pipeline that matches payment-processor payouts against internal orders and refunds, and flags every unexplained cent."
+    shapes: [pipeline]
+    affinities: [lib-pandas-groupby-merge, data-validation-cleaning, decimal-money, ds-hash-maps]
+
+  - id: tax-brackets
+    name: Tax bracket calculator
+    sector: fintech
+    flavor: "A tax-prep company's calculation core: progressive brackets, deductions, filing statuses and per-year rule tables loaded from config."
+    shapes: [library]
+    affinities: [heapq-bisect, decimal-money, slicing-off-by-one, lib-pyyaml]
+
+  - id: insurance-claims
+    name: Insurance claims adjudication
+    sector: fintech
+    flavor: "A pet-insurance carrier's claims engine: coverage checks, deductibles, waiting periods, annual limits and a manual-review queue."
+    shapes: [service]
+    affinities: [eng-state-machines, decimal-money, datetime-timezones, eng-error-handling-design]
+
+  - id: freelancer-invoicing
+    name: Freelancer time tracking & invoicing
+    sector: fintech
+    flavor: "A freelancer's command-line tool that records time entries per client and project and renders monthly invoices."
+    shapes: [cli]
+    affinities: [lib-click, datetime-timezones, decimal-money, json-serialization]
+
+  - id: order-book
+    name: Exchange order book
+    sector: fintech
+    flavor: "The matching engine of a small commodities exchange: limit and market orders, price-time priority, partial fills and cancels."
+    shapes: [library, simulation]
+    affinities: [ds-heaps, ds-sorted-containers, ordering-dunders, decimal-money]
+
+  # -------------------------------------------------------------- health ----
+  - id: vet-clinic-scheduling
+    name: Vet clinic scheduling
+    sector: health
+    flavor: "A veterinary clinic's appointment system: vets with different specialties, procedure durations by species, and vaccination reminders."
+    shapes: [service]
+    affinities: [ds-intervals, datetime-timezones, lib-fastapi, enums]
+
+  - id: hospital-bed-management
+    name: Hospital bed management
+    sector: health
+    flavor: "A hospital's bed board: admissions, transfers between wards, cleaning turnaround and isolation requirements."
+    shapes: [service]
+    affinities: [eng-state-machines, ds-heaps, sql-transactions, conc-threads-races]
+
+  - id: pharmacy-refills
+    name: Pharmacy refill scheduling
+    sector: health
+    flavor: "A pharmacy chain's refill service that predicts when patients will run out, queues refills and never dispenses the same prescription twice."
+    shapes: [service, worker]
+    affinities: [lib-dateutil, algo-calendar-scheduling, sys-idempotency, truthiness-none, lib-freezegun]
+
+  - id: fitness-aggregation
+    name: Fitness data aggregation
+    sector: health
+    flavor: "A wearable company's pipeline that merges heart-rate and step samples from devices into daily summaries and weekly trends."
+    shapes: [pipeline]
+    affinities: [algo-streaming-stats, itertools, datetime-timezones, defaultdict-counter]
+
+  - id: nurse-shift-scheduling
+    name: Nurse shift scheduling
+    sector: health
+    flavor: "A hospital staffing tool that builds four-week nurse rosters with a required skill mix per ward, minimum rest periods and a fair weekend rotation."
+    shapes: [library]
+    affinities: [algo-greedy, ds-intervals, algo-calendar-scheduling, set-semantics]
+
+  - id: clinical-trial-randomization
+    name: Clinical trial randomization
+    sector: health
+    flavor: "A trial-management service that allocates patients to study arms with stratified block randomization and an auditable allocation log."
+    shapes: [library, service]
+    affinities: [random-seeding, algo-simulation, eng-property-testing, hashing-and-secrets]
+
+  # ------------------------------------------------------------- science ----
+  - id: lab-sample-tracking
+    name: Lab sample tracking (LIMS)
+    sector: science
+    flavor: "A research lab's sample tracker: barcoded tubes, freezer box positions, chain of custody and assay results attached to aliquots."
+    shapes: [service]
+    affinities: [eng-state-machines, sql-basics, data-validation-cleaning, ds-trees, data-schema-migrations]
+
+  - id: epidemic-sir
+    name: Epidemic SIR simulation
+    sector: science
+    flavor: "A public-health research model that simulates outbreaks across regions with SIR compartments, travel between cities and intervention scenarios."
+    shapes: [simulation]
+    affinities: [lib-numpy, algo-simulation, numeric-semantics, random-seeding]
+
+  - id: satellite-telemetry
+    name: Satellite telemetry decoder
+    sector: science
+    flavor: "A cubesat team's ground-station software that decodes binary telemetry frames, verifies checksums and converts raw sensor counts into engineering units."
+    shapes: [pipeline, library]
+    affinities: [struct-binary, hashing-and-secrets, data-validation-cleaning, numeric-semantics]
+
+  - id: telescope-planner
+    name: Telescope observation planner
+    sector: science
+    flavor: "An observatory's night planner that schedules targets by altitude, moon distance and scientific priority within each night's dark window."
+    shapes: [library, cli]
+    affinities: [datetime-timezones, algo-greedy, algo-numeric-geometry, ds-heaps]
+
+  - id: dna-sequence-tools
+    name: DNA sequence toolkit
+    sector: science
+    flavor: "A genomics lab's utility library: FASTA parsing, reverse complements, k-mer counting and pairwise alignment scores."
+    shapes: [library]
+    affinities: [algo-string-matching, algo-dynamic-programming, string-handling, defaultdict-counter]
+
+  - id: weather-telemetry
+    name: Weather station ingestion
+    sector: science
+    flavor: "A weather network's ingestion pipeline: stations upload CSV and JSON readings at irregular intervals, some with broken sensors and drifting clocks."
+    shapes: [pipeline]
+    affinities: [data-file-formats-streaming, algo-streaming-stats, datetime-timezones, data-validation-cleaning, sys-backpressure-streaming]
+
+  - id: sensor-anomaly-detection
+    name: Factory sensor anomaly detection
+    sector: iot
+    flavor: "A manufacturing plant's monitor that scores vibration and temperature streams from machines and opens maintenance tickets when readings drift."
+    shapes: [pipeline, worker]
+    affinities: [algo-streaming-stats, ds-ring-buffers, lib-numpy, eng-state-machines, sys-backpressure-streaming]
+
+  # --------------------------------------------------------------- games ----
+  - id: chess-move-generator
+    name: Chess move generator
+    sector: games
+    flavor: "A chess club's analysis engine core: board representation, legal move generation including castling and en passant, and perft counts to verify it."
+    shapes: [library]
+    affinities: [ds-grids, algo-recursion, enums, shallow-vs-deep-copy]
+
+  - id: elo-matchmaking
+    name: Elo matchmaking
+    sector: games
+    flavor: "A multiplayer game's matchmaking service: rating updates after each match, queues that widen the allowed rating gap over time, and party handling."
+    shapes: [service]
+    affinities: [ds-heaps, numeric-semantics, conc-threads-races, sorting-keys]
+
+  - id: roguelike-dungeon
+    name: Roguelike dungeon generator
+    sector: games
+    flavor: "An indie roguelike's level generator: rooms and corridors on a grid, guaranteed connectivity, and seeds that reproduce a run exactly."
+    shapes: [library, simulation]
+    affinities: [ds-grids, random-seeding, algo-bfs-dfs, ds-union-find]
+
+  - id: physics-2d
+    name: 2D physics & collisions
+    sector: games
+    flavor: "A small 2D game engine's physics module: rigid bodies, broad-phase spatial hashing and collision response."
+    shapes: [simulation, library]
+    affinities: [algo-numeric-geometry, numeric-semantics, ds-grids, ds-hash-maps]
+
+  - id: board-game-rules
+    name: Board game rules engine
+    sector: games
+    flavor: "A board game café's digital companion that validates moves and scores games for a handful of classic board games."
+    shapes: [library]
+    affinities: [eng-state-machines, pattern-matching, ds-grids, enums, inheritance-super-mro]
+
+  - id: crossword-solver
+    name: Crossword generator & solver
+    sector: games
+    flavor: "A puzzle publisher's tool that fills crossword grids from a word list and checks submitted solutions."
+    shapes: [library, cli]
+    affinities: [ds-tries, algo-recursion, ds-grids, string-handling]
+
+  - id: poker-hand-evaluator
+    name: Poker hand evaluator
+    sector: games
+    flavor: "A card-game platform's hand evaluator and pot splitter, including side pots, kickers and exact ties."
+    shapes: [library]
+    affinities: [sorting-keys, defaultdict-counter, enums, ordering-dunders]
+
+  - id: save-game-migrations
+    name: Save-game serialization
+    sector: games
+    flavor: "An RPG's save system: player state serialized to JSON, versioned migrations every time the game updates, and recovery from corrupted saves."
+    shapes: [library]
+    affinities: [data-serialization-versioning, json-serialization, dataclasses, shallow-vs-deep-copy, data-schema-migrations]
+
+  # -------------------------------------------------------------- sports ----
+  - id: tournament-brackets
+    name: Tournament brackets
+    sector: sports
+    flavor: "An esports organizer's bracket service: seeding, byes, double-elimination brackets and match result reporting."
+    shapes: [library, service]
+    affinities: [algo-recursion, ds-trees, random-seeding, slicing-off-by-one]
+
+  - id: league-standings
+    name: League standings & tiebreakers
+    sector: sports
+    flavor: "An amateur football league's standings tool: points, goal difference, head-to-head tiebreakers and fixture imports from the league office's spreadsheet."
+    shapes: [library, cli]
+    affinities: [sorting-keys, ordering-dunders, defaultdict-counter, csv-and-file-io, eng-readable-idioms]
+
+  - id: fantasy-sports-scoring
+    name: Fantasy sports scoring
+    sector: sports
+    flavor: "A fantasy league platform's scoring pipeline: stat feeds per player, league-specific scoring rules and weekly head-to-head matchups."
+    shapes: [pipeline, service]
+    affinities: [numeric-semantics, lib-pandas-groupby-merge, data-validation-cleaning, dict-semantics]
+
+  # --------------------------------------------------------- media/music ----
+  - id: playlist-shuffler
+    name: Playlist shuffler
+    sector: media
+    flavor: "A music app's 'smart shuffle' that avoids back-to-back tracks by the same artist, respects explicit-content filters and can replay a shuffle from its seed."
+    shapes: [library, service]
+    affinities: [random-seeding, set-semantics, algo-greedy, iterators-generators]
+
+  - id: midi-toolkit
+    name: MIDI & music theory toolkit
+    sector: music
+    flavor: "A music-education startup's library for parsing MIDI files, quantizing notes to a grid and naming chords and scales."
+    shapes: [library]
+    affinities: [struct-binary, numeric-semantics, enums, dataclasses, lib-attrs]
+
+  - id: podcast-aggregator
+    name: Podcast feed aggregator
+    sector: media
+    flavor: "A podcast app's feed crawler that fetches RSS through a fake HTTP layer, dedupes episodes across feed updates and tracks new releases per subscriber."
+    shapes: [worker, pipeline]
+    affinities: [lib-httpx, data-validation-cleaning, datetime-timezones, sys-caching, unittest-mock]
+
+  - id: video-transcoding-queue
+    name: Video transcoding queue
+    sector: media
+    flavor: "A video platform's transcoding orchestrator that splits uploads into renditions, runs simulated encoder jobs and retries the ones that fail."
+    shapes: [worker]
+    affinities: [sys-queues-workers, sys-retries-backoff, subprocess, eng-state-machines]
+
+  - id: image-thumbnail-pipeline
+    name: Image thumbnail pipeline
+    sector: media
+    flavor: "A photo-sharing site's thumbnail service: resize jobs fanned out to a worker pool, with a content-hash cache so identical uploads are processed once."
+    shapes: [pipeline, worker]
+    affinities: [conc-futures-pools, pathlib-os, sys-caching, hashing-and-secrets, conc-multiprocessing]
+
+  - id: exif-organizer
+    name: Photo EXIF organizer
+    sector: media
+    flavor: "A photographer's CLI that reads EXIF-style metadata from image files and files them into dated folders without clobbering duplicates."
+    shapes: [cli]
+    affinities: [struct-binary, pathlib-os, datetime-timezones, string-handling, eafp-vs-lbyl]
+
+  - id: subtitle-timing
+    name: Subtitle timing aligner
+    sector: media
+    flavor: "A localization studio's SRT tool that parses subtitle files, shifts and stretches timings, and merges overlapping cues."
+    shapes: [cli, library]
+    affinities: [regex, ds-intervals, numeric-semantics, slicing-off-by-one]
+
+  # ------------------------------------------------------------ devtools ----
+  - id: markdown-renderer
+    name: Markdown renderer
+    sector: devtools
+    flavor: "A docs team's markdown-to-HTML renderer supporting headings, nested lists, fenced code, links and a couple of house extensions."
+    shapes: [library]
+    affinities: [algo-parsing, regex, string-handling, eng-security-basics]
+
+  - id: static-site-generator
+    name: Static site generator
+    sector: devtools
+    flavor: "A blogging tool that turns a folder of markdown posts with YAML front matter into a static site with tag pages and pagination."
+    shapes: [cli]
+    affinities: [pathlib-os, lib-jinja2, lib-pyyaml, slicing-off-by-one]
+
+  - id: template-engine
+    name: Template engine
+    sector: devtools
+    flavor: "A tiny homegrown template language with variables, loops, filters and HTML escaping, used by an email marketing team."
+    shapes: [library, interpreter]
+    affinities: [algo-parsing, scope-legb, eng-security-basics, string-handling, metaprogramming]
+
+  - id: spreadsheet-evaluator
+    name: Spreadsheet formula evaluator
+    sector: devtools
+    flavor: "The calculation core of a web spreadsheet: formula parsing, cell references and ranges, dependency tracking and recalculation order."
+    shapes: [interpreter, library]
+    affinities: [algo-parsing, algo-topological-sort, functools, dict-semantics]
+
+  - id: tiny-interpreter
+    name: Tiny language interpreter
+    sector: devtools
+    flavor: "A teaching language's interpreter: tokenizer, recursive-descent parser, environments with closures and a small standard library."
+    shapes: [interpreter]
+    affinities: [algo-parsing, scope-legb, algo-recursion, late-binding-closures]
+
+  - id: json-schema-validator
+    name: JSON schema validator
+    sector: devtools
+    flavor: "An API platform team's validator for a subset of JSON Schema, with precise error paths like $.items[3].price."
+    shapes: [library]
+    affinities: [algo-recursion, json-serialization, eng-error-handling-design, type-hints]
+
+  - id: layered-config-loader
+    name: Layered config loader
+    sector: devtools
+    flavor: "An internal platform library that merges defaults, YAML files, environment variables and CLI flags into one typed settings object."
+    shapes: [library]
+    affinities: [sys-config-flags, dict-semantics, lib-pyyaml, namedtuple-ordereddict-chainmap, descriptors]
+
+  - id: cli-todo-sync
+    name: CLI todo list with sync
+    sector: devtools
+    flavor: "A command-line todo app that stores tasks in local JSON and syncs with a fake remote, resolving edits made on two different laptops."
+    shapes: [cli]
+    affinities: [lib-click, json-serialization, datetime-timezones, sys-distributed-time, eng-packaging-structure]
+
+  - id: document-version-control
+    name: Document version control
+    sector: devtools
+    flavor: "A legal-tech startup's mini version-control system for documents: commits, content-addressed blobs, branches and history browsing."
+    shapes: [library, cli]
+    affinities: [hashing-and-secrets, algo-diff-merge, ds-graphs, pathlib-os]
+
+  - id: diff-patch-tool
+    name: Diff & patch tool
+    sector: devtools
+    flavor: "A code-review tool's diff engine: unified diffs, hunk application with fuzz, and whitespace-insensitive modes."
+    shapes: [cli, library]
+    affinities: [algo-diff-merge, slicing-off-by-one, string-handling, algo-dynamic-programming]
+
+  - id: dependency-resolver
+    name: Package dependency resolver
+    sector: devtools
+    flavor: "An internal package manager that resolves version constraints and install order for the packages in a monorepo."
+    shapes: [library]
+    affinities: [algo-topological-sort, ds-graphs, sorting-keys, regex, lib-networkx]
+
+  - id: incremental-build
+    name: Incremental build system
+    sector: devtools
+    flavor: "A game studio's asset build tool that rebuilds only the targets whose inputs changed, using content hashes and a dependency graph."
+    shapes: [cli]
+    affinities: [algo-topological-sort, hashing-and-secrets, pathlib-os, conc-futures-pools]
+
+  - id: text-editor-buffer
+    name: Text editor buffer
+    sector: devtools
+    flavor: "The buffer engine of a terminal text editor: cursor movement, multi-line edits, and undo/redo that groups keystrokes into sensible steps."
+    shapes: [library]
+    affinities: [ds-stacks-queues, shallow-vs-deep-copy, slicing-off-by-one, ds-linked-lists, dunder-protocols]
+
+  - id: i18n-catalog
+    name: Translation catalog
+    sector: devtools
+    flavor: "A localization pipeline that extracts UI strings, manages per-locale catalogs with plural rules and flags missing or stale translations."
+    shapes: [library, cli]
+    affinities: [unicode-and-bytes, dict-semantics, regex, string-handling]
+
+  - id: online-judge
+    name: Online code judge
+    sector: education
+    flavor: "A coding course's autograder that runs student submissions against test cases with time limits, through a small job queue."
+    shapes: [worker]
+    affinities: [subprocess, sys-queues-workers, conc-futures-pools, pathlib-os]
+
+  # ---------------------------------------------------------------- data ----
+  - id: sales-etl
+    name: Sales ETL pipeline
+    sector: data
+    flavor: "A retail chain's nightly ETL that loads store sales exports, cleans them and builds a reporting table by region and week."
+    shapes: [pipeline]
+    affinities: [lib-pandas-groupby-merge, data-validation-cleaning, csv-and-file-io, sys-batch-processing]
+
+  - id: cdc-dedup
+    name: Change-data-capture consumer
+    sector: data
+    flavor: "A data platform's CDC consumer that turns a stream of row-change events into current-state tables, handling duplicates and out-of-order updates."
+    shapes: [pipeline]
+    affinities: [sys-idempotency, sorting-keys, ds-hash-maps, sys-event-sourcing, hash-eq-contract]
+
+  - id: ab-test-analysis
+    name: A/B test analysis
+    sector: data
+    flavor: "A growth team's experiment analysis library: assignment logs, conversion metrics, confidence intervals and sample-ratio-mismatch checks."
+    shapes: [library, pipeline]
+    affinities: [algo-streaming-stats, numeric-semantics, lib-pandas-groupby-merge, hashing-and-secrets]
+
+  - id: demand-forecasting
+    name: Demand forecasting
+    sector: data
+    flavor: "A grocery chain's forecasting pipeline: daily sales by store and SKU, holiday effects and moving-average baselines."
+    shapes: [pipeline]
+    affinities: [lib-pandas-indexing, algo-sliding-window, datetime-timezones, lib-numpy]
+
+  - id: clickstream-sessionization
+    name: Clickstream sessionization
+    sector: data
+    flavor: "An analytics pipeline that turns raw page-view events into user sessions, splitting on 30 minutes of inactivity."
+    shapes: [pipeline]
+    affinities: [itertools, datetime-timezones, sorting-keys, iterators-generators]
+
+  - id: news-dedup
+    name: News article deduplication
+    sector: data
+    flavor: "A news aggregator's pipeline that clusters near-duplicate articles from hundreds of publishers into single stories."
+    shapes: [pipeline]
+    affinities: [algo-string-matching, hashing-and-secrets, ds-union-find, set-semantics, ds-probabilistic]
+
+  # ------------------------------------------------------------------ ml ----
+  - id: ml-feature-store
+    name: ML feature store
+    sector: ml
+    flavor: "An ML platform's feature store: offline feature computation, point-in-time-correct joins for training data, and an online cache for serving."
+    shapes: [service, library]
+    affinities: [sys-caching, datetime-timezones, lib-pandas-indexing, algo-binary-search]
+
+  - id: training-checkpointing
+    name: Training loop & checkpointing
+    sector: ml
+    flavor: "A research team's training harness: epochs over minibatches, learning-rate schedules, checkpoint save/resume and metric logging."
+    shapes: [library]
+    affinities: [lib-numpy, random-seeding, pathlib-os, context-managers]
+
+  - id: labeling-task-distribution
+    name: Labeling task distribution
+    sector: ml
+    flavor: "A data-labeling platform that hands out annotation tasks to workers, collects overlapping labels and computes inter-annotator agreement."
+    shapes: [service]
+    affinities: [ds-heaps, conc-threads-races, defaultdict-counter, sys-idempotency]
+
+  - id: collaborative-filtering
+    name: Collaborative filtering recommender
+    sector: ml
+    flavor: "A bookshop's 'readers also bought' recommender built from purchase histories with item-to-item similarity."
+    shapes: [library]
+    affinities: [lib-numpy, ds-hash-maps, ds-heaps, set-semantics]
+
+  - id: spam-filter
+    name: Naive Bayes spam filter
+    sector: ml
+    flavor: "A community forum's spam classifier: tokenization, word counts per class, Laplace smoothing and a moderation queue for borderline posts."
+    shapes: [library]
+    affinities: [defaultdict-counter, numeric-semantics, string-handling, unicode-and-bytes, comprehensions]
+
+  # --------------------------------------------------------------- infra ----
+  - id: log-aggregation
+    name: Log aggregation & alerting
+    sector: infra
+    flavor: "An SRE team's log pipeline that parses service logs, groups errors by fingerprint and fires alerts when error rates spike."
+    shapes: [pipeline, service]
+    affinities: [regex, algo-sliding-window, logging, defaultdict-counter, sys-observability]
+
+  - id: metrics-downsampling
+    name: Metrics downsampling
+    sector: infra
+    flavor: "A monitoring backend that rolls raw per-second metrics into 1-minute and 1-hour aggregates with per-resolution retention."
+    shapes: [library, pipeline]
+    affinities: [itertools, algo-streaming-stats, datetime-timezones, sys-batch-processing]
+
+  - id: cron-scheduler
+    name: Cron job scheduler
+    sector: infra
+    flavor: "An internal job scheduler that parses cron expressions, computes next run times and guarantees a job runs once even with several scheduler replicas."
+    shapes: [worker, service]
+    affinities: [algo-calendar-scheduling, ds-heaps, sys-distributed-time, algo-parsing]
+
+  - id: api-gateway-rate-limiter
+    name: API gateway rate limiter
+    sector: infra
+    flavor: "An API gateway's rate-limiting layer with per-key plans, burst allowances and remaining-quota headers."
+    shapes: [service]
+    affinities: [sys-rate-limiting, clocks-and-uuid, lib-fastapi, ds-hash-maps]
+
+  - id: feature-flag-service
+    name: Feature flag service
+    sector: infra
+    flavor: "A feature-flag service with targeting rules, percentage rollouts, kill switches and an SDK-side cache."
+    shapes: [service, library]
+    affinities: [sys-config-flags, hashing-and-secrets, sys-caching, pattern-matching, eng-api-design]
+
+  - id: url-shortener
+    name: URL shortener & analytics
+    sector: infra
+    flavor: "A marketing team's link shortener: short codes, redirects, click counts by day and referrer, and links that expire."
+    shapes: [service]
+    affinities: [hashing-and-secrets, defaultdict-counter, sql-basics, ds-hash-maps, eng-input-validation]
+
+  - id: web-crawler
+    name: Polite web crawler
+    sector: infra
+    flavor: "A research crawler that walks a fake in-memory web, respects robots rules and per-host rate limits, and never fetches the same page twice."
+    shapes: [worker]
+    affinities: [algo-bfs-dfs, sys-rate-limiting, async-bounded-concurrency, set-semantics, ds-probabilistic]
+
+  - id: search-engine
+    name: Search with an inverted index
+    sector: infra
+    flavor: "A documentation site's search engine: tokenization, an inverted index, TF-IDF ranking and highlighted snippets."
+    shapes: [library, service]
+    affinities: [ds-hash-maps, algo-string-matching, ds-heaps, algo-complexity, eng-performance-profiling]
+
+  - id: autocomplete-service
+    name: Autocomplete service
+    sector: infra
+    flavor: "A travel site's destination autocomplete: prefix lookup over city names in many languages, ranked by popularity."
+    shapes: [service]
+    affinities: [ds-tries, ds-heaps, unicode-and-bytes, sys-caching, object-lifecycle-memory]
+
+  - id: notification-fanout
+    name: Notification fan-out
+    sector: infra
+    flavor: "A notification service that fans events out to push, email and SMS channels, honoring user preferences and quiet hours."
+    shapes: [worker]
+    affinities: [sys-retries-backoff, sys-idempotency, async-tasks-cancellation, datetime-timezones, abc-interfaces]
+
+  - id: load-balancer
+    name: Load balancer & health checks
+    sector: infra
+    flavor: "An internal L7 load balancer's routing core: backend pools, weighted routing, active health checks and connection draining."
+    shapes: [service, simulation]
+    affinities: [sys-load-balancing, sys-timeouts-circuit-breakers, conc-threads-races, itertools, sys-observability]
+
+  - id: job-queue
+    name: Background job queue
+    sector: infra
+    flavor: "A lightweight background-job system on top of sqlite: enqueue, leases, retries with backoff and a dead-letter table."
+    shapes: [worker]
+    affinities: [sys-queues-workers, conc-producer-consumer, sys-retries-backoff, sql-sqlite3]
+
+  - id: sharded-kv-store
+    name: Sharded key-value store
+    sector: infra
+    flavor: "A teaching-grade distributed key-value store simulated in one process: shards, replicas and rebalancing when nodes join or leave."
+    shapes: [library, simulation]
+    affinities: [sys-partitioning-sharding, algo-consistent-hashing, ds-lru-cache, dict-semantics]
+
+  - id: event-sourced-orders
+    name: Event-sourced orders
+    sector: infra
+    flavor: "An order system that stores events instead of rows and builds separate read models for the storefront and the warehouse."
+    shapes: [service]
+    affinities: [sys-event-sourcing, data-serialization-versioning, sys-idempotency, eng-state-machines]
+
+  - id: resilient-http-client
+    name: Resilient partner-API client
+    sector: infra
+    flavor: "A shared internal library for calling partner APIs (faked in tests) with timeouts, retries, circuit breaking and typed responses."
+    shapes: [library]
+    affinities: [sys-timeouts-circuit-breakers, lib-httpx, sys-retries-backoff, exception-chaining, eng-test-doubles]
+
+  - id: backup-file-sync
+    name: Backup & file sync
+    sector: infra
+    flavor: "An rsync-like backup tool that scans directories, detects changed files by size, mtime and hash, and copies only what changed."
+    shapes: [cli]
+    affinities: [hashing-and-secrets, pathlib-os, algo-diff-merge, conc-futures-pools, argparse]
+
+  - id: disk-usage-analyzer
+    name: Disk usage analyzer
+    sector: infra
+    flavor: "A command-line disk usage explorer that walks a directory tree, sums sizes per folder and shows where the space went."
+    shapes: [cli]
+    affinities: [ds-trees, pathlib-os, algo-recursion, sorting-keys, argparse]
+
+  - id: print-spooler
+    name: Print job spooler
+    sector: infra
+    flavor: "An office print server's spooler: job priorities, per-printer queues, paper-out pauses and cancellation."
+    shapes: [worker, simulation]
+    affinities: [ds-heaps, conc-producer-consumer, eng-state-machines, deque]
+
+  - id: kanban-board
+    name: Kanban board API
+    sector: productivity
+    flavor: "A small team's kanban API: boards, columns with WIP limits, drag-and-drop card ordering and activity history."
+    shapes: [service]
+    affinities: [lib-fastapi, sql-indexes-pagination, eng-state-machines, lib-sqlalchemy-orm, sql-n-plus-one]
+
+  - id: calendar-sync
+    name: Calendar sync & recurrence
+    sector: productivity
+    flavor: "A calendar app's sync engine that expands recurring events, applies single-occurrence exceptions and merges edits from two devices."
+    shapes: [library]
+    affinities: [lib-dateutil, algo-calendar-scheduling, datetime-timezones, sys-distributed-time]
+
+  - id: wiki-backlinks
+    name: Wiki with backlinks
+    sector: productivity
+    flavor: "A personal knowledge-base tool that parses [[wiki links]] in markdown notes, maintains backlinks and finds orphaned pages."
+    shapes: [library, cli]
+    affinities: [regex, ds-graphs, algo-bfs-dfs, pathlib-os]
+
+  # ------------------------------------------------------------ security ----
+  - id: rbac-permissions
+    name: RBAC permissions service
+    sector: security
+    flavor: "A B2B SaaS permissions service: roles, inherited role hierarchies, resource-level grants and permission checks on every request."
+    shapes: [service, library]
+    affinities: [enums, ds-graphs, set-semantics, functools, decorators]
+
+  - id: oauth-token-service
+    name: OAuth token service
+    sector: security
+    flavor: "An identity service that issues access and refresh tokens, rotates refresh tokens on use and revokes sessions."
+    shapes: [service]
+    affinities: [clocks-and-uuid, hashing-and-secrets, conc-threads-races, sys-caching]
+
+  - id: audit-log-hash-chain
+    name: Tamper-evident audit log
+    sector: security
+    flavor: "A compliance team's append-only audit log where each entry hashes the previous one, with chain verification and export."
+    shapes: [library]
+    affinities: [hashing-and-secrets, json-serialization, data-serialization-versioning, ds-linked-lists]
+
+  - id: password-vault
+    name: Local password vault
+    sector: security
+    flavor: "A small open-source password manager's vault format: key derivation, encrypted entries (with stubbed crypto) and import from browser CSV exports."
+    shapes: [cli, library]
+    affinities: [hashing-and-secrets, struct-binary, eng-security-basics, csv-and-file-io]
+
+  - id: secrets-scanner
+    name: Secrets scanner
+    sector: security
+    flavor: "A security team's scanner that searches repositories for leaked credentials using patterns, entropy checks and an allowlist."
+    shapes: [cli]
+    affinities: [regex, pathlib-os, eng-security-basics, unicode-and-bytes]
+
+  # ------------------------------------------------------ social & comms ----
+  - id: support-ticket-routing
+    name: Support ticket routing
+    sector: business
+    flavor: "A help desk's routing engine that tags incoming tickets, assigns them to agent queues by skill and escalates SLA breaches."
+    shapes: [service]
+    affinities: [ds-heaps, eng-state-machines, algo-string-matching, datetime-timezones]
+
+  - id: email-campaign-scheduler
+    name: Email campaign scheduler
+    sector: marketing
+    flavor: "A newsletter platform's campaign scheduler: send at 9 am in each subscriber's time zone, honor unsubscribes instantly and throttle batches."
+    shapes: [worker]
+    affinities: [datetime-timezones, sys-idempotency, algo-calendar-scheduling, sys-batch-processing]
+
+  - id: chat-read-receipts
+    name: Chat history & read receipts
+    sector: social
+    flavor: "A team-chat backend: message history pagination, per-user read markers and unread counts per channel."
+    shapes: [service]
+    affinities: [sql-indexes-pagination, async-shared-state, heapq-bisect, defaultdict-counter]
+
+  - id: social-feed-ranking
+    name: Social feed ranking
+    sector: social
+    flavor: "A hobby social network's home-feed ranker that mixes recency, engagement and follow-graph signals."
+    shapes: [service]
+    affinities: [ds-heaps, sorting-keys, sys-caching, datetime-timezones]
+
+  # ------------------------------------------------------- civic & public ----
+  - id: ranked-choice-voting
+    name: Ranked-choice vote tally
+    sector: civic
+    flavor: "A city clerk's election tool that tabulates ranked-choice ballots round by round, including exhausted ballots and tie-break rules."
+    shapes: [library, cli]
+    affinities: [defaultdict-counter, sorting-keys, algo-recursion, csv-and-file-io]
+
+  - id: library-holds-queue
+    name: Library lending & holds
+    sector: civic
+    flavor: "A public library's circulation system: checkouts, due dates, a holds queue per title and overdue fines capped per item."
+    shapes: [service]
+    affinities: [deque, datetime-timezones, decimal-money, eng-state-machines, lib-freezegun]
+
+  - id: museum-capacity
+    name: Museum timed-entry ticketing
+    sector: civic
+    flavor: "A museum's timed-entry system: 15-minute entry slots, capacity per gallery and reserved allotments for members."
+    shapes: [service]
+    affinities: [ds-intervals, datetime-timezones, conc-threads-races, dict-semantics, algo-sort-and-sweep]
+
+  - id: pet-adoption-matching
+    name: Pet adoption matching
+    sector: civic
+    flavor: "An animal shelter network's matching service that pairs adopters with pets by home type, schedule and compatibility notes."
+    shapes: [service]
+    affinities: [sorting-keys, set-semantics, lib-pydantic, truthiness-none]
+
+  - id: carbon-footprint
+    name: Carbon footprint calculator
+    sector: civic
+    flavor: "A sustainability startup's calculator that converts travel, energy and purchase data into emissions using versioned emission-factor tables."
+    shapes: [library, service]
+    affinities: [numeric-semantics, data-validation-cleaning, lib-pydantic, decimal-money]
+
+  - id: genealogy-tree
+    name: Genealogy family tree
+    sector: civic
+    flavor: "A genealogy site's family-tree engine: parent and marriage relationships, ancestor queries and merging duplicate people."
+    shapes: [library]
+    affinities: [ds-trees, ds-graphs, algo-bfs-dfs, ds-union-find, lib-networkx]
+
+  - id: bank-queue-sim
+    name: Bank branch queue simulation
+    sector: simulation
+    flavor: "A bank's branch-staffing simulator that models customer arrivals and teller service times to decide how many tellers each hour needs."
+    shapes: [simulation]
+    affinities: [algo-simulation, ds-heaps, random-seeding, algo-streaming-stats]
+
+  # --------------------------------------------------- education & HR ----
+  - id: school-timetable
+    name: School timetable generator
+    sector: education
+    flavor: "A secondary school's timetable builder that assigns classes to rooms and periods with no teacher or room clashes."
+    shapes: [library]
+    affinities: [algo-greedy, ds-intervals, algo-recursion, set-semantics]
+
+  - id: plagiarism-similarity
+    name: Plagiarism similarity checker
+    sector: education
+    flavor: "A university's assignment checker that fingerprints submissions and reports suspiciously similar pairs to instructors."
+    shapes: [pipeline]
+    affinities: [algo-string-matching, hashing-and-secrets, set-semantics, itertools, conc-gil]
+
+  - id: exam-grading
+    name: Exam grading & curves
+    sector: education
+    flavor: "A teacher's grading CLI that imports scores, applies weights and curves, maps percentages to letter grades and exports reports."
+    shapes: [cli]
+    affinities: [numeric-semantics, heapq-bisect, csv-and-file-io, sorting-keys]
+
+  - id: flashcard-scheduler
+    name: Flashcard spaced repetition
+    sector: education
+    flavor: "A language-learning app's spaced-repetition scheduler that decides which cards are due and adapts intervals to how well each card was recalled."
+    shapes: [library]
+    affinities: [datetime-timezones, ds-heaps, numeric-semantics, dataclasses]
+
+  - id: leave-accrual
+    name: HR leave accrual
+    sector: business
+    flavor: "An HR system's leave engine: monthly accrual, carry-over caps, part-time proration and requests that span weekends and public holidays."
+    shapes: [library]
+    affinities: [decimal-money, lib-dateutil, algo-calendar-scheduling, truthiness-none]
+
+  - id: legal-document-assembly
+    name: Legal document assembly
+    sector: legal
+    flavor: "A law firm's document assembly tool that fills contract templates from client interview answers, with conditional clauses."
+    shapes: [library]
+    affinities: [lib-jinja2, string-handling, data-validation-cleaning, truthiness-none]
+
+  # --------------------------------------------- energy, agri & IoT ----
+  - id: energy-grid-sim
+    name: Energy grid simulator
+    sector: energy
+    flavor: "A utility's planning simulator that balances supply from plants, solar and batteries against hourly demand."
+    shapes: [simulation]
+    affinities: [lib-numpy, algo-greedy, algo-simulation, numeric-semantics]
+
+  - id: solar-forecast
+    name: Solar output forecasting
+    sector: energy
+    flavor: "A solar installer's forecasting pipeline that combines weather forecasts, panel specs and historical output per site."
+    shapes: [pipeline]
+    affinities: [lib-pandas-indexing, datetime-timezones, lib-numpy, algo-numeric-geometry]
+
+  - id: ev-charging
+    name: EV charging scheduling
+    sector: energy
+    flavor: "An EV charging network's scheduler: charger reservations, per-site power caps and time-of-use pricing."
+    shapes: [service]
+    affinities: [ds-intervals, ds-heaps, decimal-money, datetime-timezones]
+
+  - id: irrigation-scheduler
+    name: Irrigation scheduler
+    sector: agriculture
+    flavor: "A farm co-op's irrigation controller that schedules watering zones from soil-moisture readings, weather forecasts and water quotas."
+    shapes: [worker, service]
+    affinities: [algo-calendar-scheduling, datetime-timezones, eng-state-machines, numeric-semantics]
+
+  - id: garden-planting-calendar
+    name: Garden planting calendar
+    sector: agriculture
+    flavor: "A gardening app that computes sowing and harvest windows from frost dates and crop tables per climate zone."
+    shapes: [cli, library]
+    affinities: [lib-dateutil, datetime-timezones, data-validation-cleaning, lib-pyyaml]
+
+  - id: smart-home-rules
+    name: Smart home automation rules
+    sector: iot
+    flavor: "A smart-home hub's automation engine: triggers, conditions and actions written in a small rule language by users."
+    shapes: [service, interpreter]
+    affinities: [algo-parsing, eng-state-machines, async-basics, late-binding-closures, async-blocking-loop]
+
+  - id: iot-firmware-rollout
+    name: IoT firmware rollout
+    sector: iot
+    flavor: "A device-fleet service that rolls out firmware in waves, tracks device check-ins and halts the rollout when error rates spike."
+    shapes: [service, worker]
+    affinities: [sys-config-flags, hashing-and-secrets, sys-retries-backoff, eng-state-machines]

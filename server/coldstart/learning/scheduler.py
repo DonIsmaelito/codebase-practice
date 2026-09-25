@@ -54,6 +54,19 @@ PERF_WORDS = ("complexity", "n-plus-one", "performance", "profiling")
 
 STATES = ["fog", "glimpsed", "practiced", "solid", "mastered"]
 
+# The first engagements should be crisp, classic "aha" bugs — the kind that
+# make someone go "wait, Python does WHAT?" — before anything subtler.
+STARTER_INCIDENTS = [
+    "mutable-defaults", "truthiness-none", "dict-semantics", "slicing-off-by-one",
+    "class-vs-instance-attributes", "shallow-vs-deep-copy", "sorting-keys", "numeric-semantics",
+    "string-handling", "names-and-binding",
+]
+# Process-y concepts make weak incidents/tickets on their own; they shine as flavor.
+ROLE_REGION_WEIGHT = {
+    "incident": {"practice": 0.25},
+    "feature": {"practice": 0.4, "core": 0.4},
+}
+
 
 # --- learner state ----------------------------------------------------------------
 
@@ -197,6 +210,12 @@ def pick_concept(role: str, *, level: int, exclude: set[str], recent: list[dict[
     max_tier = 1 if level <= 2 else 2 if level <= 5 else 3
     recent_targets = [s.get(f"{role}_concept", {}).get("id") for s in recent[:3]]
     recent_regions = [s.get("incident_concept", {}).get("region") for s in recent[:2]]
+    if role == "incident" and len(recent) < 2:
+        starters = [cur.concepts[c] for c in STARTER_INCIDENTS
+                    if c in cur.concepts and c not in exclude and c not in recent_targets
+                    and ms.get(c, {}).get("state", "fog") == "fog"]
+        if starters:
+            return random.choice(starters)
     pool = []
     for c in cur.concepts.values():
         if c.id in exclude or c.tier > max_tier:
@@ -214,6 +233,7 @@ def pick_concept(role: str, *, level: int, exclude: set[str], recent: list[dict[
             w *= 0.5
         if c.tier < max_tier:
             w *= 0.8  # slight pull toward the current frontier once lower tiers are available
+        w *= ROLE_REGION_WEIGHT.get(role, {}).get(c.region, 1.0)
         pool.append((c, w))
     if not pool:  # fall back to anything at an allowed tier
         pool = [(c, 1.0) for c in cur.concepts.values()

@@ -8,6 +8,7 @@ exactly where the budget went.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
 import logging
 import re
@@ -50,8 +51,12 @@ def text_part(text: str) -> dict[str, Any]:
     return {"type": "text", "text": text}
 
 
+# Lets the CLI force one model for every role (e.g. a cheap model while testing).
+MODEL_OVERRIDE: contextvars.ContextVar[str | None] = contextvars.ContextVar("model_override", default=None)
+
+
 def model_for(role: str) -> str:
-    return db.settings()["models"].get(role) or config.DEFAULT_MODELS[role]
+    return MODEL_OVERRIDE.get() or db.settings()["models"].get(role) or config.DEFAULT_MODELS[role]
 
 
 _client: httpx.AsyncClient | None = None

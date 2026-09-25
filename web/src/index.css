@@ -1,0 +1,166 @@
+@import "tailwindcss";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/jetbrains-mono";
+@import "@fontsource/instrument-serif/400.css";
+@import "@fontsource/instrument-serif/400-italic.css";
+@import "@xterm/xterm/css/xterm.css";
+
+/* Night-shift palette. Every task kind has one semantic color:
+   recon = blue, incident = amber, feature = violet, mentor = teal, pass = green. */
+@theme {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-serif: "Instrument Serif", ui-serif, Georgia, serif;
+
+  --color-ink-0: #090b10;
+  --color-ink-1: #0e1118;
+  --color-ink-2: #131722;
+  --color-ink-3: #191e2b;
+  --color-ink-4: #212839;
+  --color-line: #1d2230;
+  --color-line-strong: #2a3143;
+
+  --color-fg-0: #e9ecf3;
+  --color-fg-1: #aeb6c6;
+  --color-fg-2: #737c90;
+  --color-fg-3: #4b5367;
+
+  --color-amber: #f5b454;
+  --color-amber-dim: #3a2c16;
+  --color-red: #f07178;
+  --color-red-dim: #3a1b20;
+  --color-green: #56d6a4;
+  --color-green-dim: #15342a;
+  --color-blue: #72b4ff;
+  --color-blue-dim: #16273f;
+  --color-violet: #a98bff;
+  --color-violet-dim: #251d42;
+  --color-teal: #4fd6c8;
+  --color-teal-dim: #123230;
+
+  --animate-rise: rise 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-shimmer: shimmer 2.2s linear infinite;
+  --animate-breathe: breathe 2.6s ease-in-out infinite;
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes shimmer {
+  from { background-position: -200% 0; }
+  to { background-position: 200% 0; }
+}
+@keyframes breathe {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-ink-0);
+  color: var(--color-fg-0);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "cv11", "ss01";
+}
+
+::selection {
+  background: color-mix(in oklab, var(--color-blue) 35%, transparent);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-ink-4) transparent;
+}
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb {
+  background: var(--color-ink-4);
+  border-radius: 10px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-track { background: transparent; }
+
+:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--color-blue) 70%, transparent);
+  outline-offset: 2px;
+}
+
+button { cursor: pointer; }
+button:disabled { cursor: default; }
+
+/* Subtle grain + glow for big surfaces */
+.surface-glow {
+  background:
+    radial-gradient(1200px 500px at 10% -10%, color-mix(in oklab, var(--color-blue) 7%, transparent), transparent 60%),
+    radial-gradient(900px 400px at 110% 10%, color-mix(in oklab, var(--color-amber) 5%, transparent), transparent 60%),
+    var(--color-ink-0);
+}
+
+.shimmer-bar {
+  background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--color-fg-0) 18%, transparent), transparent);
+  background-size: 200% 100%;
+  animation: var(--animate-shimmer);
+}
+
+/* Resizable panel separators */
+[data-separator] {
+  background: var(--color-line);
+  transition: background 0.15s;
+  flex: 0 0 1px;
+}
+[data-separator]:hover,
+[data-separator][data-separator-state="drag"],
+[data-separator][data-resize-handle-state="drag"] {
+  background: color-mix(in oklab, var(--color-blue) 60%, transparent);
+}
+
+/* Markdown prose (reports, tickets, debriefs, playbook) */
+.prose-cs { color: var(--color-fg-1); font-size: 13.5px; line-height: 1.65; }
+.prose-cs > :first-child { margin-top: 0; }
+.prose-cs > :last-child { margin-bottom: 0; }
+.prose-cs p { margin: 0.55em 0; }
+.prose-cs strong { color: var(--color-fg-0); font-weight: 600; }
+.prose-cs em { color: var(--color-fg-0); }
+.prose-cs a { color: var(--color-blue); text-decoration: underline; text-decoration-color: color-mix(in oklab, var(--color-blue) 40%, transparent); text-underline-offset: 2px; }
+.prose-cs h1, .prose-cs h2, .prose-cs h3, .prose-cs h4 { color: var(--color-fg-0); font-weight: 600; line-height: 1.3; margin: 1.3em 0 0.5em; }
+.prose-cs h1 { font-size: 1.5em; }
+.prose-cs h2 { font-size: 1.22em; }
+.prose-cs h3 { font-size: 1.05em; }
+.prose-cs ul, .prose-cs ol { margin: 0.5em 0; padding-left: 1.3em; }
+.prose-cs ul { list-style: disc; }
+.prose-cs ol { list-style: decimal; }
+.prose-cs li { margin: 0.25em 0; }
+.prose-cs li::marker { color: var(--color-fg-3); }
+.prose-cs blockquote { border-left: 2px solid var(--color-line-strong); padding-left: 0.9em; color: var(--color-fg-2); margin: 0.8em 0; }
+.prose-cs code { font-family: var(--font-mono); font-size: 0.86em; background: var(--color-ink-3); border: 1px solid var(--color-line); padding: 0.08em 0.35em; border-radius: 5px; color: var(--color-fg-0); }
+.prose-cs pre { margin: 0.8em 0; background: var(--color-ink-1); border: 1px solid var(--color-line); border-radius: 10px; padding: 0.8em 1em; overflow-x: auto; font-size: 12.5px; line-height: 1.55; }
+.prose-cs pre code { background: none; border: 0; padding: 0; font-size: inherit; color: var(--color-fg-1); }
+.prose-cs table { border-collapse: collapse; margin: 0.8em 0; font-size: 0.95em; }
+.prose-cs th, .prose-cs td { border: 1px solid var(--color-line); padding: 0.35em 0.6em; text-align: left; }
+.prose-cs th { color: var(--color-fg-0); background: var(--color-ink-2); }
+.prose-cs hr { border: 0; border-top: 1px solid var(--color-line); margin: 1.2em 0; }
+.prose-lg { font-size: 15.5px; line-height: 1.75; }
+
+/* xterm: blend into the panel */
+.xterm { padding: 8px 0 0 10px; height: 100%; }
+.xterm .xterm-viewport { background-color: transparent !important; }
+.xterm .xterm-viewport::-webkit-scrollbar { width: 8px; }
+
+/* Monaco: tour-stop highlight + definition peek polish */
+.cs-tour-line { background: color-mix(in oklab, var(--color-blue) 12%, transparent); }
+.cs-tour-glyph { background: var(--color-blue); border-radius: 2px; margin-left: 4px; width: 3px !important; }
+.cs-review-line { background: color-mix(in oklab, var(--color-violet) 10%, transparent); }
+.cs-flash-line { background: color-mix(in oklab, var(--color-amber) 14%, transparent); transition: background 1s; }
+
+/* Hex map */
+.hex { transition: fill 0.4s, stroke 0.3s, opacity 0.4s, filter 0.3s; cursor: pointer; }
+.hex:hover { filter: brightness(1.35); }

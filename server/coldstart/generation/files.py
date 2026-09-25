@@ -83,7 +83,9 @@ def read_repo(root: Path) -> dict[str, str]:
     for p in sorted(root.rglob("*")):
         if not p.is_file() or any(part in SKIP_DIRS for part in p.relative_to(root).parts):
             continue
-        if p.suffix.lower() not in TEXT_SUFFIXES and p.name not in ("Makefile", "Dockerfile"):
+        if p.suffix.lower() not in TEXT_SUFFIXES and p.suffix != "":
+            continue  # extensionless files (.gitignore, Makefile, LICENSE) are text too
+        if p.stat().st_size > 1_000_000:
             continue
         try:
             out[p.relative_to(root).as_posix()] = p.read_text()

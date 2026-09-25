@@ -60,6 +60,7 @@ class Pipeline:
         self.dir.mkdir(parents=True, exist_ok=True)
         self.work.mkdir(exist_ok=True)
         self.timings: dict[str, float] = {}
+        self._repo_name: str | None = None
         self._log = (self.dir / "gen.log").open("a")
 
     # --- bookkeeping ------------------------------------------------------------
@@ -335,9 +336,15 @@ class Pipeline:
     async def _run_script(self, base: Path, code: str) -> sandbox.ProcResult:
         tmp = sandbox.scratch_copy(base, "repro")
         try:
-            return await sandbox.run_python(code, tmp, timeout=30)
+            res = await sandbox.run_python(code, tmp, timeout=30, filename="repro.py")
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+        # Real tracebacks come from a server, not our scratch dir.
+        deploy = f"/srv/{self._repo_name or 'app'}"
+        for prefix in {str(tmp), str(tmp.resolve()), str(tmp).replace("/private/", "/", 1)}:
+            res.stdout = res.stdout.replace(prefix, deploy)
+            res.stderr = res.stderr.replace(prefix, deploy)
+        return res
 
     async def write_report(self, design: dict[str, Any], incident: dict[str, Any]) -> dict[str, Any]:
         self.stage("report")
@@ -494,6 +501,7 @@ class Pipeline:
         self.note(f"spec: {json.dumps(self._spec_summary())}")
         design = await self.architect()
         (self.dir / "design.json").write_text(json.dumps(design, indent=2))
+        self._repo_name = design["repo"]["name"]
         self.note(f"design: {design['company']['name']} / {design['repo']['name']} ({design['repo']['shape']})")
 
         repo_files, convo = await self.implement(design)
@@ -514,6 +522,9 @@ class Pipeline:
         materials = self._qa_materials(design, incident, report, feature, recon)
         qa = await self.qa(prefix, materials)
         self.note(f"QA verdict: {qa.get('verdict')} issues={len(qa.get('issues') or [])}")
+        high = [i for i in qa.get("issues") or [] if i.get("severity") == "high"]
+        if qa.get("verdict") == "reject" and not high:
+            qa["verdict"] = "patch"  # rejects need a high-severity reason; otherwise keep the patches
         if qa.get("verdict") == "reject":
             raise PipelineError("QA rejected the case: " + "; ".join(i.get("problem", "") for i in qa.get("issues", [])[:3]))
         report, feature, recon, incident = self._apply_patches(qa, report, feature, recon, incident)

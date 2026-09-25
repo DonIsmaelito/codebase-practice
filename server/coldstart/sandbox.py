@@ -264,11 +264,15 @@ def scratch_copy(src: Path, label: str = "run") -> Path:
     return dest
 
 
-async def run_python(code: str, cwd: Path, *, timeout: float = 20) -> ProcResult:
+async def run_python(code: str, cwd: Path, *, timeout: float = 20, filename: str | None = None) -> ProcResult:
     """Execute a Python snippet with `cwd` importable (used for repro scripts)."""
-    fd, path = tempfile.mkstemp(prefix="coldstart-snippet-", suffix=".py", dir=str(cwd))
-    with os.fdopen(fd, "w") as fh:
-        fh.write(code)
+    if filename:
+        path = str(cwd / filename)
+        Path(path).write_text(code)
+    else:
+        fd, path = tempfile.mkstemp(prefix="coldstart-snippet-", suffix=".py", dir=str(cwd))
+        with os.fdopen(fd, "w") as fh:
+            fh.write(code)
     try:
         return await run([str(config.RUNTIME_PYTHON), path], cwd=cwd, timeout=timeout,
                          env={"PYTHONPATH": str(cwd)})

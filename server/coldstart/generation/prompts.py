@@ -513,6 +513,8 @@ A "predict" question also has "setup" (Python statements run from the repo root:
 def qa_task(materials: str) -> str:
     return f"""TASK: You are the final QA reviewer for this exercise. Review the materials against the codebase and decide whether it ships.
 
+HOW THE EXERCISE WORKS (read carefully): the <codebase> above is the ORIGINAL, CORRECT code. The exercise deliberately INJECTS a bug by applying <bug_diff> to it; the learner receives the original code WITH the bug_diff applied (plus the report), and must find and undo the bug. So the bug_diff is SUPPOSED to turn correct code into buggy code — that is not a problem. Hidden tests are supposed to pass on the original and fail on the buggy version (this was verified by running them).
+
 {materials}
 
 Check:

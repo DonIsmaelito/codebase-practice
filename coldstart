@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# Cold Start launcher.
+#   ./coldstart setup      install everything (Python envs, web build)
+#   ./coldstart            start the app at http://127.0.0.1:8321
+#   ./coldstart dev        backend with reload + Vite dev server (for hacking on Cold Start)
+#   ./coldstart generate   generate client cases in the foreground (see --help)
+#   ./coldstart doctor     check the environment
+#   ./coldstart spend      show what the AI has cost so far
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PY="$ROOT/server/.venv/bin/python"
+PORT="${COLDSTART_PORT:-8321}"
+cmd="${1:-start}"
+[[ $# -gt 0 ]] && shift
+
+need() { command -v "$1" >/dev/null 2>&1 || { echo "✗ $1 is required ($2)"; exit 1; }; }
+
+case "$cmd" in
+  setup)
+    need uv "https://docs.astral.sh/uv/"
+    need npm "https://nodejs.org"
+    need git "https://git-scm.com"
+    echo "→ server environment"
+    (cd "$ROOT/server" && uv sync --extra dev --quiet)
+    echo "→ runtime environment for client codebases"
+    uv venv "$ROOT/.runtime" --python 3.13 --quiet 2>/dev/null || uv venv "$ROOT/.runtime" --python 3.12 --quiet
+    uv pip install --python "$ROOT/.runtime/bin/python" -r "$ROOT/runtime/requirements.txt" --quiet
+    echo "→ web app"
+    (cd "$ROOT/web" && npm install --silent && npm run build --silent)
+    if [[ ! -f "$ROOT/.env" ]]; then
+      cp "$ROOT/.env.example" "$ROOT/.env"
+      echo "! Add your OpenRouter key to .env"
+    fi
+    echo "✓ ready — run ./coldstart"
+    ;;
+  start)
+    [[ -x "$PY" ]] || { echo "Run ./coldstart setup first."; exit 1; }
+    (sleep 1.5 && command -v open >/dev/null && open "http://127.0.0.1:$PORT") &
+    cd "$ROOT/server" && exec "$PY" -m coldstart.cli serve --port "$PORT"
+    ;;
+  dev)
+    trap 'kill 0' EXIT
+    (cd "$ROOT/server" && "$PY" -m coldstart.cli serve --port "$PORT" --reload) &
+    (cd "$ROOT/web" && npm run dev) &
+    wait
+    ;;
+  generate|doctor|spend)
+    cd "$ROOT/server" && exec "$PY" -m coldstart.cli "$cmd" "$@"
+    ;;
+  *)
+    sed -n '2,8p' "$0"
+    exit 1
+    ;;
+esac

@@ -1,0 +1,24 @@
+# secrets — never commit
+.env
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+.runtime/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# node
+web/node_modules/
+web/dist/
+
+# local app data: generated codebases (contain solutions!), workspaces, progress DB
+data/
+
+# os / editors
+.DS_Store
+.idea/
+.vscode/

@@ -226,7 +226,7 @@ function InboxCard({ card, disabled, onDismiss }: { card: CaseCard; disabled: bo
       <button
         onClick={(e) => {
           e.stopPropagation();
-          onDismiss();
+          if (confirm(`Pass on ${card.company}? They won't come back — a new client will take their place.`)) onDismiss();
         }}
         className="absolute top-3 right-3 hidden rounded-md p-1 text-fg-3 group-hover:block hover:bg-ink-3 hover:text-fg-1"
         title="Pass on this client"

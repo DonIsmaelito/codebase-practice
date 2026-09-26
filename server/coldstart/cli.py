@@ -73,7 +73,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     status = asyncio.run(llm.key_status(force=True))
     check("OpenRouter key works", bool(status.get("ok")), status.get("error", ""))
     if status.get("ok"):
-        print(f"    credit remaining: ${status.get('remaining')} of ${status.get('limit')}")
+        print(f"    credit remaining: ${float(status.get('remaining') or 0):.2f} of ${status.get('limit')}")
     sys.exit(0 if ok else 1)
 
 

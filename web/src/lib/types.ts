@@ -303,6 +303,7 @@ export interface EngagementPayload {
   hints: Partial<Record<TaskKind, string[]>>;
   hint_total: { incident: number; feature: number };
   settings: { mentor_name: string; timer_mode: string; sound: boolean };
+  habit: { text: string; company: string; case_id: string; ts: number } | null;
 }
 
 export interface TreeEntry {

@@ -213,7 +213,13 @@ def engagement_payload(eid: str) -> dict[str, Any]:
         "hint_total": {"incident": len(case["incident"]["meta"].get("hints", [])),
                        "feature": len((case.get("feature") or {}).get("meta", {}).get("hints", []))},
         "settings": {k: db.settings().get(k) for k in ("mentor_name", "timer_mode", "sound")},
+        "habit": _habit_for(e["case_id"]),
     }
+
+
+def _habit_for(case_id: str) -> dict[str, Any] | None:
+    habit = db.kv_get("habit")
+    return habit if habit and habit.get("case_id") != case_id else None
 
 
 @app.post("/api/engagements/{eid}/tasks/{kind}/begin")

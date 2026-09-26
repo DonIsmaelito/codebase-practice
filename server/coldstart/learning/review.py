@@ -213,6 +213,10 @@ Line numbers in comments refer to the NEW file (the + side of their diff). 3-8 c
     result["solution"] = sol
     result["previous_encounters"] = previous_encounters(case["concepts"][t["kind"]], exclude_case=case["id"])
     result["speed"] = _speed(t, result)
+    if review.get("next_time"):
+        # Carried into the next engagement: a concrete habit to practice, in context.
+        db.kv_set("habit", {"text": review["next_time"], "case_id": case["id"],
+                            "company": case["company"]["name"], "ts": time.time()})
     entry_id = _journal_entry(case, t, review)
     result["journal_id"] = entry_id
     E._finish(task_id, t["status"], result)

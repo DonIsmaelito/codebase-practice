@@ -264,6 +264,12 @@ export default function Workbench() {
               </div>
             </div>
           )}
+          {data!.habit && (
+            <div className="mt-5 rounded-xl border border-teal/20 bg-teal-dim/30 px-4 py-3">
+              <div className="text-[11px] font-semibold tracking-[0.08em] text-teal uppercase">Your habit for this one · from {data!.habit.company}</div>
+              <Markdown className="mt-1 text-[13.5px] [&_p]:text-fg-0">{data!.habit.text}</Markdown>
+            </div>
+          )}
           <p className="mt-5 text-[13.5px] leading-relaxed text-fg-1">
             {first === "recon"
               ? "Get your bearings before anything breaks. Nobody reads everything — read with a question."

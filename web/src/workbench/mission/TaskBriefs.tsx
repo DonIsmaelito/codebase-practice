@@ -165,6 +165,12 @@ export function IncidentBrief({ data, onDone }: { data: EngagementPayload; onDon
               </Button>
             </div>
           )}
+          {data.habit && (
+            <div className="rounded-xl border border-teal/20 bg-teal-dim/25 px-3.5 py-2.5">
+              <div className="text-[10.5px] font-semibold tracking-[0.08em] text-teal uppercase">Habit to practice</div>
+              <Markdown className="mt-0.5 text-[12.5px]">{data.habit.text}</Markdown>
+            </div>
+          )}
           <div className="rounded-xl border border-line bg-ink-1 p-3.5">
             <div className="flex items-center gap-2 text-[12.5px] font-medium text-fg-1">
               <NotebookPen className="size-3.5 text-blue" /> First hypothesis

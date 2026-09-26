@@ -29,6 +29,10 @@ class LLMError(RuntimeError):
     pass
 
 
+class CreditError(LLMError):
+    """OpenRouter refused for lack of credit — retrying won't help until someone tops up."""
+
+
 @dataclass
 class Completion:
     text: str
@@ -96,7 +100,7 @@ def _record(role: str, model: str, case_id: str | None, c: Completion | None,
 
 
 def _body(model: str, messages: list[Message], *, max_tokens: int,
-          temperature: float | None, reasoning: str | None, stream: bool,
+          temperature: float | None, reasoning: str | int | None, stream: bool,
           json_mode: bool) -> dict[str, Any]:
     body: dict[str, Any] = {
         "model": model,
@@ -107,8 +111,15 @@ def _body(model: str, messages: list[Message], *, max_tokens: int,
     }
     if temperature is not None:
         body["temperature"] = temperature
-    if reasoning:
-        body["reasoning"] = {"effort": reasoning} if reasoning != "off" else {"enabled": False}
+    # An int is an explicit thinking budget (tokens). Prefer it: reasoning counts
+    # against max_tokens, and an effort level alone once let a model think until
+    # the limit and return nothing.
+    if isinstance(reasoning, int):
+        body["reasoning"] = {"max_tokens": reasoning}
+    elif reasoning == "off":
+        body["reasoning"] = {"enabled": False}
+    elif reasoning:
+        body["reasoning"] = {"effort": reasoning}
     if json_mode:
         body["response_format"] = {"type": "json_object"}
     return body
@@ -143,6 +154,9 @@ async def _stream_raw(body: dict[str, Any]) -> AsyncIterator[dict[str, Any]]:
     async with _http().stream("POST", "/chat/completions", json=body) as resp:
         if resp.status_code >= 400:
             detail = (await resp.aread()).decode("utf-8", "replace")[:800]
+            if resp.status_code == 402:
+                raise CreditError("Your OpenRouter account is out of credits — add some at "
+                                  "openrouter.ai/settings/credits, then try again.")
             raise LLMError(f"HTTP {resp.status_code}: {detail}")
         async for line in resp.aiter_lines():
             if not line or line.startswith(":"):
@@ -176,7 +190,7 @@ async def complete(
     model: str | None = None,
     max_tokens: int = 8000,
     temperature: float | None = None,
-    reasoning: str | None = None,
+    reasoning: str | int | None = None,
     json_mode: bool = False,
     case_id: str | None = None,
     on_progress: Callable[[int], None] | None = None,
@@ -224,18 +238,25 @@ async def complete(
                 raw_usage=usage,
             )
             _record(role, model, case_id, c, c.duration_s)
+            if not text.strip() and finish == "length" and reasoning != "off":
+                # All tokens went to thinking. Try once more without it, with more room.
+                log.warning("%s: thinking used the whole budget; retrying without reasoning", role)
+                reasoning, max_tokens = "off", min(64000, int(max_tokens * 1.5))
+                continue
             if not text.strip():
                 raise LLMError(f"empty completion (finish_reason={finish})")
             return c
         except Exception as err:  # noqa: BLE001 — we classify below
             last_err = err
             _record(role, model, case_id, None, time.monotonic() - started, error=str(err)[:500])
-            if attempt < retries and _is_retryable(err):
+            if attempt < retries and _is_retryable(err) and not isinstance(err, CreditError):
                 delay = min(60, 4 * 2**attempt)
                 log.warning("LLM call failed (%s); retrying in %ss", err, delay)
                 await asyncio.sleep(delay)
                 continue
             break
+    if isinstance(last_err, LLMError):
+        raise last_err
     raise LLMError(str(last_err)) from last_err
 
 
@@ -246,7 +267,7 @@ async def stream(
     model: str | None = None,
     max_tokens: int = 2000,
     temperature: float | None = None,
-    reasoning: str | None = None,
+    reasoning: str | int | None = None,
     case_id: str | None = None,
 ) -> AsyncIterator[str]:
     """Yield text deltas as they arrive (used for the mentor chat)."""
@@ -348,10 +369,24 @@ async def key_status(force: bool = False) -> dict[str, Any]:
         r = await _http().get("/key")
         r.raise_for_status()
         data = r.json().get("data", {})
+        # A key's limit is only a cap; what can actually be spent is the account
+        # balance (shared with every other key on the account).
+        account = None
+        try:
+            c = await _http().get("/credits")
+            if c.status_code == 200:
+                cd = c.json().get("data", {})
+                account = float(cd.get("total_credits") or 0) - float(cd.get("total_usage") or 0)
+        except httpx.HTTPError:
+            pass
+        key_left = data.get("limit_remaining")
+        options = [v for v in (key_left, account) if v is not None]
         status = {
             "ok": True,
             "limit": data.get("limit"),
-            "remaining": data.get("limit_remaining"),
+            "key_remaining": key_left,
+            "account_remaining": account,
+            "remaining": min(options) if options else None,
             "usage": data.get("usage"),
         }
     except Exception as err:  # noqa: BLE001

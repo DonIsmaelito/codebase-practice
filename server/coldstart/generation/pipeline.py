@@ -88,7 +88,7 @@ class Pipeline:
                                  "output": output}) + "\n")
 
     async def call(self, stage: str, messages: list[llm.Message], *, role: str, max_tokens: int,
-                   reasoning: str | None = None, expected_chars: int | None = None) -> llm.Completion:
+                   reasoning: str | int | None = None, expected_chars: int | None = None) -> llm.Completion:
         last = [0.0]
 
         def progress(chars: int) -> None:
@@ -112,7 +112,7 @@ class Pipeline:
         self.stage("architect")
         msgs = P.architect_messages(self.spec)
         for attempt in range(3):
-            c = await self.call("architect", msgs, role="architect", max_tokens=16000, reasoning="medium")
+            c = await self.call("architect", msgs, role="architect", max_tokens=16000, reasoning=6000)
             try:
                 design = llm.parse_json(c.text)
                 self._validate_design(design)
@@ -155,7 +155,7 @@ class Pipeline:
         msgs = P.implementer_messages(self.spec, design)
         expected = max(40_000, self.spec["loc"][1] * 2 * 45)  # rough chars for code + tests + README
         c = await self.call("implement", msgs, role="implementer", max_tokens=64000,
-                            reasoning="low", expected_chars=expected)
+                            reasoning=4000, expected_chars=expected)
         repo_files = F.parse_files(c.text)
         if not repo_files:
             raise PipelineError("implementer produced no files")
@@ -211,7 +211,7 @@ class Pipeline:
                 summary += "\nThe suite has fewer than 3 tests — add realistic tests for the main flows."
             extra = ("\nStatic checks also found problems to fix:\n" + "\n".join(f"- {p}" for p in problems)) if problems else ""
             convo = convo + [P.repair_message(summary, extra)]
-            c = await self.call("verify", convo, role="implementer", max_tokens=32000, reasoning="low")
+            c = await self.call("verify", convo, role="implementer", max_tokens=32000, reasoning=3000)
             convo = convo + [{"role": "assistant", "content": c.text}]
             for rel, body in F.parse_files(c.text).items():
                 repo_files[rel] = body
@@ -232,7 +232,13 @@ class Pipeline:
         failing_mode = self.spec["fidelity"] == "failing_test"
         clean = self.work / "clean"
         for attempt in range(3):
-            c = await self.call("incident", msgs, role="designer", max_tokens=24000, reasoning="medium")
+            try:
+                c = await self.call("incident", msgs, role="designer", max_tokens=32000, reasoning=10000)
+            except llm.CreditError:
+                raise
+            except llm.LLMError as err:
+                self.note(f"incident attempt {attempt + 1}: model call failed: {err}")
+                continue
             try:
                 result = await self._verify_incident(c.text, clean, clean_files, failing_mode)
                 return result
@@ -375,7 +381,13 @@ class Pipeline:
         self.stage("feature")
         msgs = P.with_task(prefix, P.feature_task(self.spec, design))
         for attempt in range(3):
-            c = await self.call("feature", msgs, role="designer", max_tokens=28000, reasoning="medium")
+            try:
+                c = await self.call("feature", msgs, role="designer", max_tokens=32000, reasoning=10000)
+            except llm.CreditError:
+                raise
+            except llm.LLMError as err:
+                self.note(f"feature attempt {attempt + 1}: model call failed: {err}")
+                continue
             try:
                 return await self._verify_feature(c.text)
             except (PipelineError, F.EditError, ValueError, KeyError) as err:
@@ -438,7 +450,13 @@ class Pipeline:
         msgs = P.with_task(prefix, P.recon_task(self.spec, design, incident["meta"]))
         buggy_files = F.read_repo(self.work / "buggy")
         for attempt in range(3):
-            c = await self.call("recon", msgs, role="designer", max_tokens=12000, reasoning="low")
+            try:
+                c = await self.call("recon", msgs, role="designer", max_tokens=12000, reasoning=3000)
+            except llm.CreditError:
+                raise
+            except llm.LLMError as err:
+                self.note(f"recon attempt {attempt + 1}: model call failed: {err}")
+                continue
             try:
                 recon = llm.parse_json(c.text)
                 return await self._verify_recon(recon, buggy_files)
@@ -496,7 +514,7 @@ class Pipeline:
     async def qa(self, prefix: list[llm.Message], materials: str) -> dict[str, Any]:
         self.stage("qa")
         msgs = P.with_task(prefix, P.qa_task(materials))
-        c = await self.call("qa", msgs, role="reviewer", max_tokens=16000, reasoning="medium")
+        c = await self.call("qa", msgs, role="reviewer", max_tokens=16000, reasoning=6000)
         try:
             return llm.parse_json(c.text)
         except (ValueError, json.JSONDecodeError):

@@ -123,7 +123,8 @@ class GenerationManager:
         key = await llm.key_status()
         remaining = key.get("remaining")
         if key.get("ok") and remaining is not None and remaining < float(settings.get("budget_floor_usd", 1.0)):
-            self.last_error = f"Paused: only ${remaining:.2f} credit left on the OpenRouter key."
+            self.last_error = (f"Paused: your OpenRouter account has ${remaining:.2f} left — add credits at "
+                               "openrouter.ai/settings/credits.")
             return
         case_id = enqueue()
         spec = db.loads(db.one("SELECT spec FROM cases WHERE id = ?", case_id)["spec"])
@@ -138,6 +139,10 @@ class GenerationManager:
             except asyncio.CancelledError:
                 db.run("UPDATE cases SET status = 'failed', error = 'cancelled' WHERE id = ?", case_id)
                 raise
+            except llm.CreditError as err:
+                self.last_error = str(err)
+                self._paused_until = time.time() + 60 * 60  # nothing to do until someone tops up
+                log.warning("case %s stopped: %s", case_id, err)
             except Exception as err:  # noqa: BLE001
                 self._consecutive_failures += 1
                 self.last_error = f"{type(err).__name__}: {err}"[:400]

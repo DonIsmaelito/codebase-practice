@@ -205,7 +205,7 @@ Reply with ONLY JSON:
 Line numbers in comments refer to the NEW file (the + side of their diff). 3-8 comments; include praise where deserved."""
     review, _ = await llm.complete_json(
         [{"role": "system", "content": REVIEWER_SYSTEM}, {"role": "user", "content": prompt}],
-        role="reviewer", max_tokens=6000, reasoning="low", case_id=case["id"],
+        role="reviewer", max_tokens=8000, reasoning=2000, case_id=case["id"],
     )
     result["review"] = review
     result["explanation"] = explanation

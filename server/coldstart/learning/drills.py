@@ -69,7 +69,7 @@ Reply with ONLY a JSON object: {{"drills": [
 Line numbers are 1-based over `code`."""
     data, _ = await llm.complete_json(
         [{"role": "system", "content": DRILL_SYSTEM}, {"role": "user", "content": prompt}],
-        role="designer", max_tokens=9000, reasoning="low",
+        role="designer", max_tokens=10000, reasoning=2000,
     )
     kept = 0
     for d in data.get("drills", []):

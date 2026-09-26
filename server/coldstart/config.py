@@ -84,6 +84,7 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "timer_mode": "stopwatch",   # stopwatch | countdown
     "mentor_name": "Sam",
     "sound": False,
+    "coach_nudges": True,        # the mentor checks in when you've been stuck ~5 minutes
 }
 
 SANDBOX_TEST_TIMEOUT = 90  # seconds per pytest run

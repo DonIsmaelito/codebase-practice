@@ -103,7 +103,8 @@ async def chat(task_id: str, message: str, ctx: dict[str, Any]) -> AsyncIterator
         {"role": "assistant", "content": "I've read through the codebase. What are you looking at?"},
     ]
     for m in past:
-        messages.append({"role": m["role"], "content": m["content"]})
+        # The coach's check-ins were the mentor speaking unprompted.
+        messages.append({"role": "assistant" if m["role"] == "nudge" else m["role"], "content": m["content"]})
     live = _live_context(ws, task_id, t, ctx)
     messages.append({"role": "user", "content": f"{live}\n\n{message}"})
 

@@ -538,3 +538,127 @@ Reply with ONLY a JSON object:
 }}
 "patches" fields: null, or a full replacement in the same schema as the materials (report_messages = list of messages; feature_ticket = ticket object; recon_questions = questions list; incident_meta = an object containing only the meta fields to replace, e.g. hints or mechanism).
 Use "patch" when text changes fix the issues; "reject" only for problems text can't fix (implausible bug, hidden tests that reject valid fixes, code that leaks the answer). Minor nitpicks → "ship"."""
+
+
+# --- 8. the people in the incident thread (written lazily, per case) ----------------------
+
+def cast_task(case: dict[str, Any], bug_diff: str) -> str:
+    inc, meta = case["incident"], case["incident"]["meta"]
+    par = int(inc.get("par_minutes") or 15)
+    reg = (inc.get("regression_test") or {}).get("path")
+    return f"""TASK: Bring the people in this incident thread to life.
+
+The contractor (the learner) is working the incident below. While they investigate they can message the thread, and the thread keeps moving: new information arrives, someone chimes in, the lead checks in. Design what these people know, what they can pull up if asked, and what they'll post unprompted.
+
+The <codebase> above is what's deployed in production right now — it contains the bug.
+
+THE REPORT THE CONTRACTOR RECEIVED
+{json.dumps(inc['report'], indent=1)}
+
+GROUND TRUTH — for you only; nobody in the thread knows this
+symptom: {meta.get('symptom')}
+root cause: {meta.get('root_cause')}
+location: {meta.get('root_cause_file')} :: {meta.get('root_cause_symbol')}
+the bug, as a diff from the correct code:
+{bug_diff[:6000]}
+the repro script whose real output the report quotes:
+{inc.get('repro', '')[:4000]}
+{f'regression test in the repo: {reg}' if reg else ''}
+
+LEARNER: {learner_description(int(case['spec']['level']))}
+
+WHY THIS EXISTS (design for it)
+- Experts ask sharp questions early: scope (who/what is affected — and who isn't), timeline (since when, what changed), reproducibility, the exact input, expected vs. actual. Asking those should pay off: each fact narrows the search or saves real time, but none of them gives away the cause or where it lives.
+- Nobody in the thread knows the cause. People know what they've observed, what changed around them, and how the product is used. Engineers know the architecture broadly ("imports go through `importers/`") but haven't looked into this bug.
+- Include at least one fact an expert would go looking for — e.g. which inputs are affected vs. which aren't, or a recent change to an AREA that's consistent with the diff ("the lot-draining cleanup shipped two weeks ago" when the bug looks like a refactor regression). At most one fact may be a realistic red herring.
+- Status pressure is real but kind: the lead asks for an update partway through, which practices explaining a hypothesis and next step to a non-expert.
+
+OUTPUT — reply with ONLY this JSON:
+{{
+  "people": [{{"name": "exact team member name", "role": "...", "knows": "what they can speak to", "stance": "what they currently believe is going on (may be wrong)"}}],
+  "facts": [{{"id": "f1", "who": "name", "topic": "scope|timeline|changes|environment|input|expected|workaround|impact|architecture|history", "fact": "specific and concrete, the way they'd say it", "value": "clue|context|red_herring"}}],
+  "evidence": [{{"id": "ev1", "who": "name", "offer": "what they can paste if asked, e.g. 'the customer's full export'", "script": "standalone python, run from the repo root, that prints exactly what they'd paste", "expected": false}}],
+  "beats": [{{"id": "b1", "at_minute": 4, "who": "name", "kind": "new_info|status_check|theory|pressure", "body": "markdown message. To include an evidence item's real output, put {{{{ev1}}}} on its own line."}}],
+  "resolution": {{
+    "fixed": {{"who": "name", "body": "they confirm it's fixed on their side and ask the contractor for a two-line summary of what happened for the incident log"}},
+    "not_fixed": {{"who": "name", "body": "gracious: they'll take it from here with the senior engineer"}}
+  }}
+}}
+
+RULES
+- people: the report's authors plus anyone else from the team who'd plausibly be in this thread (2-4 people).
+- 5-9 facts, 2-4 evidence items, 2-4 beats between minute 3 and minute {par + 5}. Exactly one beat is a status_check, around minute {max(6, round(par * 0.6))}. A beat that adds information should make the contractor's life easier only if they read it carefully.
+- Any concrete number, ID, output, log line or traceback a person pastes must come from an evidence script — you can't make data up. An evidence script that exercises OTHER inputs than the report's (another customer, another account, a case that works fine) is often the most valuable evidence: it shows scope. Set "expected": true to run the script against the CORRECT code instead — for things like "what the accountant says the number should be".
+- Scripts: under 50 lines, deterministic, no network, no asserts, import from the package; they run in production (the buggy code), so outputs show the real symptom. Print plainly, the way it'd look pasted into Slack.
+- Never state or hint at the cause, the file or function it lives in, or the fix. A fact about recent changes names a feature or area, never a line.
+- Keep every person's voice from the team list."""
+
+
+REPLY_SYSTEM = WRITER_SYSTEM + """
+
+You are voicing the people in a live incident thread. A contractor was brought in to fix the problem and is messaging the thread while they investigate. Stay in character: people know useful things but share only what they're asked, in their own voices, and none of them knows the root cause. The thread is where the contractor practices asking sharp questions and communicating clearly — respond the way good colleagues at a real company would."""
+
+
+def reply_task(thread_text: str, state: str) -> str:
+    return f"""<thread_since_report>
+{thread_text}
+</thread_since_report>
+<state>{state}</state>
+
+Write the next message(s) in the thread, answering the contractor's latest message(s).
+- Usually ONE reply, from the person best placed to answer. Two only if a second person would naturally chime in.
+- Answer what was asked, the way that person would say it, using <facts>. If someone can pull up an item from <evidence> that answers it, set "evidence" to its id — the real output gets pasted under the message, so don't restate or characterize its contents.
+- If nobody knows, say so plainly (and who might). Never invent numbers, IDs, outputs, tracebacks or log lines beyond <facts> and <evidence>. Small everyday details (Python version, deploy cadence) may be answered consistently with the codebase.
+- Nobody knows the root cause or where in the code it is. If the contractor floats a theory, react in character — an engineer might ask how they'd prove it — but never confirm or deny code-level specifics.
+- If the contractor asks someone else to investigate or fix it, they decline politely: that's what the contractor is for.
+- A status update gets a brief acknowledgment from the lead, maybe one follow-up (customer impact, ETA, what to tell the customer).
+- If the status is FIXED and the contractor hasn't yet summarized what happened, the lead asks for a two-line summary for the incident log; once they have, thank them and close out.
+- Slack-length: 1-4 sentences, markdown allowed, no sign-offs.
+
+Reply with ONLY JSON: {{"replies": [{{"from": "exact name", "body": "...", "evidence": "ev1 or null"}}]}}"""
+
+
+# --- 9. the expert replay (written lazily, after the learner finishes an incident) -----------
+
+def replay_task(case: dict[str, Any], fix_diff: str) -> str:
+    inc, meta = case["incident"], case["incident"]["meta"]
+    reg = (inc.get("regression_test") or {}).get("path")
+    package = case["repo"]["package"]
+    return f"""TASK: Script a screen recording of an expert working this incident, for the contractor to watch right after they finished it themselves.
+
+The <codebase> above is the deployed code, bug included. The replay plays in an editor: each step opens a file and highlights lines, runs a search, or runs a command in the terminal, while a caption narrates the expert thinking out loud. The contractor already knows the answer, so the value is entirely in HOW the expert moves: what they read first and what they skip, how they turn the report into a hypothesis, how they test it cheaply, and how they prove the fix.
+
+THE REPORT
+{json.dumps(inc['report'], indent=1)}
+
+GROUND TRUTH
+root cause: {meta.get('root_cause')}
+location: {meta.get('root_cause_file')} :: {meta.get('root_cause_symbol')}
+files on the path from symptom to cause: {json.dumps(meta.get('files_involved', []))}
+the expert path in summary (expand it into concrete moves): {json.dumps(meta.get('expert_path', []))}
+repro script: {inc.get('repro', '')[:3000]}
+{f'regression test already in the repo: {reg}' if reg else ''}
+the canonical fix:
+{fix_diff[:5000]}
+
+STEPS — 8 to 14, each one of:
+{{"kind": "read", "path": "file", "anchor": "one line copied verbatim from the file, where the highlight starts", "lines": 1-14, "say": "..."}}
+{{"kind": "search", "query": "literal text to search the codebase for", "say": "..."}}
+{{"kind": "run", "command": "...", "say": "..."}}  — runs for real against the buggy code; the real output is shown
+{{"kind": "think", "say": "..."}}  — a beat to reason: the hypothesis, what would confirm or kill it
+{{"kind": "fix", "say": "..."}}  — shows the canonical fix
+{{"kind": "verify", "command": "...", "say": "..."}}  — runs for real against the FIXED code
+Every step also has "at": the expert's elapsed seconds when it starts (a fast but human pace).
+
+NARRATION ("say"): first person, present tense, thinking aloud to a junior colleague. 1-3 sentences. Name the heuristic when you use one ("I read tracebacks bottom-up", "reproduce before theorizing", "diff the working case against the broken one"). Say at least once what you deliberately skip and why. Don't spoil the next step — narrate what you're looking for, then the step shows what you find.
+
+COMMANDS: run from the repo root, only `pytest ...` or `python ...` (e.g. `python -c "..."` or `python -m {package}...`). No pipes, no shell features, no console-script entry points. Under 220 characters each. Include at least one run step (reproducing) and end with a verify step.
+
+Reply with ONLY JSON: {{"steps": [...], "takeaway": "one sentence: the transferable move to steal from this replay"}}"""
+
+
+def replay_repair(broken: list[dict[str, Any]]) -> str:
+    return f"""These steps' commands didn't run as intended (their real output is shown):
+{json.dumps(broken, indent=1)}
+
+Reply with ONLY JSON: {{"steps": [...]}} containing corrected versions of just these steps (same "index", same kinds), with commands that will work from the repo root. If a step can't be made to work, set its kind to "think" and drop the command."""

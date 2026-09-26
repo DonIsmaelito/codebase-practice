@@ -24,7 +24,7 @@ from . import config, curriculum, db, llm, persist, sandbox
 from .generation import features
 from .generation.manager import manager
 from .learning import engagements as E
-from .learning import drills, mentor, review, scheduler
+from .learning import bg, cast, coach, drills, mentor, replay, review, scheduler
 from .runtime import intel, search
 from .runtime.terminal import TerminalSession
 from .runtime.workspace import Workspace, WorkspaceError
@@ -54,7 +54,7 @@ app = FastAPI(title="Cold Start", lifespan=lifespan)
 
 
 def _background_busy() -> bool:
-    return manager.busy() or features.busy() or bool(_drill_task and not _drill_task.done())
+    return manager.busy() or features.busy() or bg.busy() or bool(_drill_task and not _drill_task.done())
 
 
 async def _keep_awake_while_busy(interval: float = 45.0) -> None:
@@ -227,6 +227,7 @@ async def start_engagement(body: dict = Body(...)) -> dict[str, Any]:
     e = E.start(body["case_id"], body.get("plan") or db.settings().get("default_plan", ["recon", "incident"]))
     if "feature" in e["plan"]:
         features.ensure(e["case_id"])  # written while they do recon + the incident
+    cast.ensure(e["case_id"])  # the people in the incident thread, ready by the time it lands
     manager.poke()  # a slot opened in the inbox
     return engagement_payload(e["id"])
 
@@ -263,7 +264,7 @@ def engagement_payload(eid: str) -> dict[str, Any]:
         "hints": {k: E.hints_seen(t["id"]) for k, t in tasks.items() if k != "recon"},
         "hint_total": {"incident": len(case["incident"]["meta"].get("hints", [])),
                        "feature": len((case.get("feature") or {}).get("meta", {}).get("hints", []))},
-        "settings": {k: db.settings().get(k) for k in ("mentor_name", "timer_mode", "sound")},
+        "settings": {k: db.settings().get(k) for k in ("mentor_name", "timer_mode", "sound", "coach_nudges")},
         "habit": _habit_for(e["case_id"]),
     }
 
@@ -276,6 +277,8 @@ def _habit_for(case_id: str) -> dict[str, Any] | None:
 @app.post("/api/engagements/{eid}/tasks/{kind}/begin")
 async def begin_task(eid: str, kind: str) -> dict[str, Any]:
     E.begin_task(eid, kind)
+    if kind == "incident":
+        cast.ensure(E.get(eid)["case_id"])
     return engagement_payload(eid)
 
 
@@ -338,13 +341,59 @@ async def task_recon(task_id: str, body: dict = Body(...)) -> dict[str, Any]:
 
 @app.post("/api/tasks/{task_id}/submit")
 async def task_submit(task_id: str) -> dict[str, Any]:
-    return await E.submit(task_id)
+    result = await E.submit(task_id)
+    if result["passed"]:
+        _incident_over(task_id)
+    return result
 
 
 @app.post("/api/tasks/{task_id}/reveal")
 async def task_reveal(task_id: str) -> dict[str, Any]:
     await E.reveal(task_id)
+    _incident_over(task_id)
     return {"ok": True}
+
+
+def _incident_over(task_id: str) -> None:
+    t = E.task(task_id)
+    if t["kind"] == "incident":
+        cast.resolve(task_id)                           # the thread closes the loop
+        replay.ensure(E.get(t["engagement_id"])["case_id"])  # ready by the time the debrief is read
+
+
+@app.get("/api/tasks/{task_id}/live")
+async def task_live(task_id: str, thread_after: int = 0, chat_after: int = 0, coach_on: bool = True) -> dict[str, Any]:
+    """Polled while a task is open: new thread messages, who's typing, coach check-ins."""
+    t = E.task(task_id)
+    e = E.get(t["engagement_id"])
+    if e["status"] == "active":
+        cast.tick(t, e["case_id"])
+        if coach_on:
+            coach.tick(t, e["case_id"])
+    incident = t["kind"] == "incident"
+    return {
+        "thread": cast.messages(task_id, after=thread_after) if incident else [],
+        "typing": cast.typing(task_id) if incident else None,
+        "reply_error": cast.reply_error(task_id) if incident else None,
+        "cast": cast.status(e["case_id"]) if incident else None,
+        "nudges": coach.nudges(task_id, after=chat_after),
+    }
+
+
+@app.post("/api/tasks/{task_id}/thread")
+async def thread_post(task_id: str, body: dict = Body(...)) -> dict[str, Any]:
+    return {"message": cast.post(task_id, str(body.get("body", "")))}
+
+
+@app.post("/api/tasks/{task_id}/thread/retry")
+async def thread_retry(task_id: str) -> dict[str, Any]:
+    cast.retry(task_id)
+    return {"ok": True}
+
+
+@app.get("/api/tasks/{task_id}/replay")
+async def task_replay(task_id: str) -> dict[str, Any]:
+    return replay.payload(task_id)
 
 
 @app.post("/api/tasks/{task_id}/debrief")
@@ -675,7 +724,7 @@ async def get_settings() -> dict[str, Any]:
 @app.put("/api/settings")
 async def put_settings(body: dict = Body(...)) -> dict[str, Any]:
     allowed = {"models", "buffer_size", "auto_generate", "budget_floor_usd", "daily_budget_usd",
-               "default_plan", "timer_mode", "mentor_name", "sound"}
+               "default_plan", "timer_mode", "mentor_name", "sound", "coach_nudges"}
     patch = {k: v for k, v in body.items() if k in allowed}
     if "level" in body:
         scheduler.set_level(float(body["level"]))

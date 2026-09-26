@@ -55,9 +55,9 @@ def cmd_spend(args: argparse.Namespace) -> None:
     print(json.dumps(asyncio.run(llm.key_status(force=True)), indent=2))
 
 
-IDENTITY_TABLES = {"events", "chat", "journal", "llm_calls", "drills"}
+IDENTITY_TABLES = {"events", "chat", "journal", "llm_calls", "drills", "thread_messages"}
 PUSH_ORDER = ["cases", "engagements", "tasks", "events", "chat", "mastery", "journal",
-              "practice_days", "llm_calls", "kv", "drills"]
+              "practice_days", "llm_calls", "kv", "drills", "thread_messages"]
 
 
 def cmd_cloud_push(args: argparse.Namespace) -> None:

@@ -15,6 +15,7 @@ from typing import Any
 
 from .. import db, llm
 from ..runtime.workspace import Workspace
+from . import cast
 from . import engagements as E
 from . import scheduler
 
@@ -116,6 +117,12 @@ def _timeline(task_id: str, started_at: float | None) -> str:
             lines.append(f"{stamp} wrote hypothesis: {d.get('text', '')[:200]!r}")
         elif k == "reveal":
             lines.append(f"{stamp} revealed the solution")
+        elif k == "thread_post":
+            lines.append(f"{stamp} messaged the team: {d.get('message', '')[:160]!r}")
+        elif k in ("thread_beat", "thread_reply"):
+            lines.append(f"{stamp} {d.get('from', 'the team')} posted: {d.get('message', '')[:120]!r}")
+        elif k == "nudge":
+            lines.append(f"{stamp} mentor checked in: {d.get('message', '')[:140]!r}")
     return "\n".join(lines[-80:]) or "(no activity recorded)"
 
 
@@ -136,6 +143,7 @@ async def debrief(task_id: str, explanation: str) -> dict[str, Any]:
 
     if t["kind"] == "incident":
         sol = E.incident_solution(case)
+        thread = cast.transcript(task_id)
         prompt = f"""Debrief the contractor's work on this incident at {case['company']['name']}.
 
 <incident>
@@ -156,6 +164,9 @@ their diff:
 their investigation timeline (mm:ss since the report arrived):
 {timeline}
 </learner>
+<thread note="the incident thread after the report: the contractor could message the team, and the team posted updates and asked for status">
+{thread or '(nothing after the report)'}
+</thread>
 
 Reply with ONLY JSON:
 {{
@@ -164,6 +175,7 @@ Reply with ONLY JSON:
   "fix_quality": "root-cause|partial|symptom-patch|incorrect|none",
   "fix_review": "markdown bullets (2-5): correctness, edge cases, whether it fixes the cause or patches the symptom, idiomatic Python, consistency with the codebase — cite files/lines",
   "process_review": "markdown, 3-6 sentences: compare their timeline with the expert path. Where did the time go? What evidence in the report did they use or miss? Be specific about moments in the timeline.",
+  "communication_review": "markdown, 1-3 sentences on how they worked with the people in the thread: did they ask the questions that would have narrowed things down (scope, timeline, what changed, the exact input), use what they were told, answer the status check clearly (what's known, what's next)? Quote them. Empty string if the thread had nothing after the report.",
   "strengths": ["1-3 specific things they did well"],
   "next_time": "ONE concrete, actionable technique to try in the next engagement",
   "lesson": "one sentence, second person: the transferable TECHNICAL lesson about the concept at the heart of this bug, phrased so it applies in any codebase (process advice belongs in next_time, not here)"

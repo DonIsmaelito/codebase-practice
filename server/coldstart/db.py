@@ -74,6 +74,19 @@ CREATE TABLE IF NOT EXISTS chat (
     content         TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS thread_messages (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    engagement_id   TEXT NOT NULL,
+    task_id         TEXT NOT NULL,
+    ts              REAL NOT NULL,
+    author          TEXT NOT NULL,        -- 'You' or a character's name
+    author_role     TEXT,
+    body            TEXT NOT NULL,
+    kind            TEXT NOT NULL,        -- learner | reply | beat | resolution | hidden
+    beat_id         TEXT
+);
+CREATE INDEX IF NOT EXISTS thread_by_task ON thread_messages(task_id, id);
+
 CREATE TABLE IF NOT EXISTS mastery (
     concept_id  TEXT PRIMARY KEY,
     data        TEXT NOT NULL,

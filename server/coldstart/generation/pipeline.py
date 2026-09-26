@@ -27,7 +27,7 @@ from typing import Any
 from .. import config, db, llm, persist, sandbox
 from . import files as F
 from . import prompts as P
-from . import safety
+from . import runner, safety
 
 log = logging.getLogger("coldstart.pipeline")
 
@@ -344,22 +344,8 @@ class Pipeline:
             shutil.rmtree(tmp, ignore_errors=True)
 
     async def _run_script(self, base: Path, code: str) -> sandbox.ProcResult:
-        tmp = sandbox.scratch_copy(base, "repro")
-        try:
-            res = await sandbox.run_python(code, tmp, timeout=30, filename="repro.py")
-        finally:
-            shutil.rmtree(tmp, ignore_errors=True)
         # Real tracebacks come from a server, not our scratch dir or this machine's venv.
-        deploy = f"/srv/{self._repo_name or 'app'}"
-        venv, base = sandbox.runtime_prefixes()
-        mapping = {p: deploy for p in (str(tmp), str(tmp.resolve()), str(tmp).replace("/private/", "/", 1))}
-        mapping[venv] = f"{deploy}/.venv"
-        mapping[str(Path(venv).resolve())] = f"{deploy}/.venv"
-        mapping[base] = "/usr/local"
-        mapping[str(Path(base).resolve())] = "/usr/local"
-        res.stdout = sandbox.scrub_paths(res.stdout, mapping)
-        res.stderr = sandbox.scrub_paths(res.stderr, mapping)
-        return res
+        return await runner.run_script(base, code, self._repo_name or "app")
 
     async def write_report(self, design: dict[str, Any], incident: dict[str, Any]) -> dict[str, Any]:
         self.stage("report")

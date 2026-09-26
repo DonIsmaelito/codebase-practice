@@ -20,9 +20,12 @@ export default function MentorChat({ taskId, kind, mentorName }: { taskId: strin
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
+  // Check-ins from the coach land in this conversation too.
+  const nudgeCount = useWB((s) => (s.live.taskId === taskId ? s.live.nudges.length : 0));
   useEffect(() => {
+    if (streaming) return;
     api.chatHistory(taskId).then((r) => setMessages(r.messages)).catch(() => {});
-  }, [taskId]);
+  }, [taskId, nudgeCount]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -93,6 +96,14 @@ export default function MentorChat({ taskId, kind, mentorName }: { taskId: strin
             <div key={i} className="ml-8 rounded-xl rounded-br-sm bg-ink-3 px-3.5 py-2.5 text-[13px] whitespace-pre-wrap text-fg-0">
               {m.content}
             </div>
+          ) : m.role === "nudge" ? (
+            <div key={i} className="flex gap-2.5">
+              <Avatar name={mentorName} size={24} />
+              <div className="min-w-0 flex-1 border-l-2 border-teal/50 pl-2.5">
+                <div className="text-[10.5px] font-semibold tracking-[0.08em] text-teal uppercase">checked in</div>
+                <Markdown className="mt-0.5 text-[13px]">{m.content}</Markdown>
+              </div>
+            </div>
           ) : (
             <div key={i} className="flex gap-2.5">
               <Avatar name={mentorName} size={24} />
@@ -118,7 +129,7 @@ export default function MentorChat({ taskId, kind, mentorName }: { taskId: strin
             }}
             rows={Math.min(6, Math.max(1, input.split("\n").length))}
             placeholder={`Ask ${mentorName}…`}
-            className="max-h-40 min-h-[22px] flex-1 resize-none bg-transparent px-1 text-[13px] text-fg-0 outline-none placeholder:text-fg-3"
+            className="cs-bare max-h-40 min-h-[22px] flex-1 resize-none bg-transparent px-1 text-[13px] text-fg-0 outline-none placeholder:text-fg-3"
           />
           <button
             onClick={() => (streaming ? abortRef.current?.abort() : void send(input))}

@@ -5,16 +5,19 @@ import type {
   DeskState,
   EngagementPayload,
   JournalEntry,
+  LivePayload,
   Location,
   ProgressRow,
   ReconResult,
   Region,
+  ReplayPayload,
   SearchResult,
   Settings,
   SubmitResult,
   TaskKind,
   TaskResult,
   TestReport,
+  ThreadMessage,
   TreeEntry,
 } from "./types";
 
@@ -83,6 +86,11 @@ export const api = {
   reveal: (taskId: string) => post(`/api/tasks/${taskId}/reveal`),
   debrief: (taskId: string, explanation: string) => post<TaskResult>(`/api/tasks/${taskId}/debrief`, { explanation }),
   chatHistory: (taskId: string) => get<{ messages: ChatMessage[] }>(`/api/tasks/${taskId}/chat`),
+  live: (taskId: string, threadAfter: number, chatAfter: number, coachOn: boolean) =>
+    get<LivePayload>(`/api/tasks/${taskId}/live?${q({ thread_after: threadAfter, chat_after: chatAfter, coach_on: coachOn ? 1 : 0 })}`),
+  postThread: (taskId: string, body: string) => post<{ message: ThreadMessage }>(`/api/tasks/${taskId}/thread`, { body }),
+  retryThread: (taskId: string) => post(`/api/tasks/${taskId}/thread/retry`),
+  replay: (taskId: string) => get<ReplayPayload>(`/api/tasks/${taskId}/replay`),
 
   tree: (eid: string) => get<{ entries: TreeEntry[]; changed: string[] }>(`/api/ws/${eid}/tree`),
   readFile: (eid: string, path: string) => get<{ path: string; content: string }>(`/api/ws/${eid}/file?${q({ path })}`),

@@ -171,6 +171,9 @@ export default function SettingsPage() {
           <Row label="Background generation" hint="Keep the inbox stocked automatically.">
             <Segmented value={s.auto_generate ? "on" : "off"} options={[{ value: "on", label: "On" }, { value: "off", label: "Off" }]} onChange={(v) => void save({ auto_generate: v === "on" })} />
           </Row>
+          <Row label="Coach check-ins" hint="When you've been stuck ~5 minutes, your mentor asks one question. Never the answer.">
+            <Segmented value={s.coach_nudges === false ? "off" : "on"} options={[{ value: "on", label: "On" }, { value: "off", label: "Off" }]} onChange={(v) => void save({ coach_nudges: v === "on" })} />
+          </Row>
           <Row label="Mentor's name" hint="Your pairing partner.">
             <input defaultValue={s.mentor_name} onBlur={(e) => e.target.value.trim() && void save({ mentor_name: e.target.value.trim() })}
               className="w-40 rounded-md border border-line-strong bg-ink-0 px-2.5 py-1.5 text-[13px] text-fg-0 outline-none focus:border-blue" />

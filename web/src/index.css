@@ -93,6 +93,8 @@ body {
   outline: 2px solid color-mix(in oklab, var(--color-blue) 70%, transparent);
   outline-offset: 2px;
 }
+/* Inputs inside a box that shows focus itself (focus-within border) */
+.cs-bare:focus-visible { outline: none; }
 
 button { cursor: pointer; }
 button:disabled { cursor: default; }
@@ -160,6 +162,11 @@ button:disabled { cursor: default; }
 .cs-tour-glyph { background: var(--color-blue); border-radius: 2px; margin-left: 4px; width: 3px !important; }
 .cs-review-line { background: color-mix(in oklab, var(--color-violet) 10%, transparent); }
 .cs-flash-line { background: color-mix(in oklab, var(--color-amber) 14%, transparent); transition: background 1s; }
+
+/* Expert replay: the lines being read, and search matches */
+.cs-replay-line { background: color-mix(in oklab, var(--color-green) 11%, transparent); }
+.cs-replay-glyph { background: var(--color-green); border-radius: 2px; margin-left: 4px; width: 3px !important; }
+.cs-replay-hit { background: color-mix(in oklab, var(--color-amber) 30%, transparent); border-radius: 2px; }
 
 /* Hex map */
 .hex { transition: fill 0.4s, stroke 0.3s, opacity 0.4s, filter 0.3s; cursor: pointer; }

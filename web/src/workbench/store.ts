@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { api } from "../lib/api";
 import { createModel, getModel, type monaco } from "../lib/monaco";
-import type { EngagementPayload, Task, TaskKind, TestReport, TreeEntry } from "../lib/types";
+import type { EngagementPayload, LivePayload, Nudge, Task, TaskKind, TestReport, ThreadMessage, TreeEntry } from "../lib/types";
 
 export interface Tab {
   path: string;
@@ -20,6 +20,21 @@ interface Reveal {
   highlight?: "tour" | "flash";
   endLine?: number;
 }
+
+/** The live side of a task: the incident thread and the coach's check-ins. */
+export interface LiveState {
+  taskId: string | null;
+  cursor: number; // highest thread id seen through polling (posts don't advance it)
+  thread: ThreadMessage[];
+  typing: string | null;
+  replyError: string | null;
+  nudges: Nudge[];
+  cast: LivePayload["cast"];
+}
+
+const emptyLive = (taskId: string | null = null): LiveState => ({
+  taskId, cursor: 0, thread: [], typing: null, replyError: null, nudges: [], cast: null,
+});
 
 interface WorkbenchState {
   eid: string | null;
@@ -44,6 +59,10 @@ interface WorkbenchState {
   featurePreparing: boolean; // the optional ticket is being written on demand
   editedOnce: Set<string>;
   queue: { kind: string; data?: unknown; ts: number }[];
+  live: LiveState;
+  unread: { brief: number; mentor: number };
+  nudgeToast: Nudge | null;
+  replayTask: string | null; // the expert replay is open for this task
 
   load: (eid: string) => Promise<void>;
   refresh: () => Promise<void>;
@@ -63,6 +82,8 @@ interface WorkbenchState {
   activeTask: () => Task | null;
   beginTask: (kind: TaskKind) => Promise<void>;
   takeFeature: () => Promise<void>;
+  pollLive: (taskId: string, coachOn: boolean) => Promise<void>;
+  postThread: (body: string) => Promise<void>;
   reset: () => void;
 }
 
@@ -89,6 +110,10 @@ const initial = {
   featurePreparing: false,
   editedOnce: new Set<string>(),
   queue: [] as { kind: string; data?: unknown; ts: number }[],
+  live: emptyLive(),
+  unread: { brief: 0, mentor: 0 },
+  nudgeToast: null as Nudge | null,
+  replayTask: null as string | null,
 };
 
 const saveTimers = new Map<string, number>();
@@ -268,7 +293,52 @@ export const useWB = create<WorkbenchState>((set, get) => ({
     }
   },
 
+  async pollLive(taskId, coachOn) {
+    const before = get().live;
+    const same = before.taskId === taskId;
+    let r: LivePayload;
+    try {
+      r = await api.live(taskId, same ? before.cursor : 0, same ? (before.nudges.at(-1)?.id ?? 0) : 0, coachOn);
+    } catch {
+      return;
+    }
+    const cur = get().live.taskId === taskId ? get().live : emptyLive(taskId);
+    const known = new Set(cur.thread.map((m) => m.id));
+    const fresh = r.thread.filter((m) => !known.has(m.id));
+    const knownNudges = new Set(cur.nudges.map((n) => n.id));
+    const freshNudges = r.nudges.filter((n) => !knownNudges.has(n.id));
+    const { rightTab, unread, nudgeToast } = get();
+    // Only what arrives while you're here counts as new; the first poll is history.
+    const incoming = same ? fresh.filter((m) => m.kind !== "learner").length : 0;
+    set({
+      live: {
+        taskId,
+        cursor: Math.max(cur.cursor, ...r.thread.map((m) => m.id)),
+        thread: [...cur.thread, ...fresh].sort((a, b) => a.id - b.id),
+        typing: r.typing,
+        replyError: r.reply_error,
+        nudges: [...cur.nudges, ...freshNudges],
+        cast: r.cast,
+      },
+      unread: {
+        brief: rightTab === "brief" ? 0 : unread.brief + incoming,
+        mentor: rightTab === "mentor" ? 0 : unread.mentor + (same ? freshNudges.length : 0),
+      },
+      nudgeToast: same && freshNudges.length && rightTab !== "mentor" ? freshNudges[freshNudges.length - 1] : nudgeToast,
+    });
+  },
+
+  async postThread(body) {
+    const taskId = get().live.taskId;
+    if (!taskId) return;
+    const { message } = await api.postThread(taskId, body);
+    const cur = get().live;
+    if (cur.taskId !== taskId || cur.thread.some((m) => m.id === message.id)) return;
+    // Show it now, and "typing…" until the poller hears back (the cursor stays put so nothing is skipped).
+    set({ live: { ...cur, thread: [...cur.thread, message].sort((a, b) => a.id - b.id), typing: cur.typing ?? "", replyError: null } });
+  },
+
   reset() {
-    set({ ...initial, changed: new Set(), dirty: new Set(), editedOnce: new Set(), queue: [] });
+    set({ ...initial, changed: new Set(), dirty: new Set(), editedOnce: new Set(), queue: [], live: emptyLive(), unread: { brief: 0, mentor: 0 } });
   },
 }));

@@ -5,10 +5,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Avatar, Button, Chip, Markdown, SectionLabel } from "../../components/ui";
 import { api } from "../../lib/api";
 import { fidelityLabel } from "../../lib/format";
-import type { EngagementPayload, SubmitResult, TaskKind } from "../../lib/types";
+import type { EngagementPayload, SubmitResult, TaskKind, ThreadMessage } from "../../lib/types";
 import { useWB } from "../store";
 import Hints from "./Hints";
-import Thread from "./Thread";
+import Thread, { type LiveThread } from "./Thread";
 
 // --- shared submit flow ---------------------------------------------------------------
 
@@ -147,12 +147,30 @@ export function IncidentBrief({ data, onDone }: { data: EngagementPayload; onDon
     setSavedHyp(true);
   };
 
+  // The thread is live while this incident is the live task; otherwise show what was said.
+  const live = useWB((s) => s.live);
+  const mine = live.taskId === task.id;
+  const history = useThreadHistory(task.id, !mine && task.status !== "pending");
+  const thread: LiveThread = mine
+    ? {
+        messages: live.thread,
+        typing: live.typing,
+        error: live.replyError,
+        startedAt: task.started_at,
+        onSend: data.engagement.status === "active" ? (text) => useWB.getState().postThread(text) : undefined,
+        onRetry: () => {
+          useWB.getState().set({ live: { ...useWB.getState().live, replyError: null, typing: "" } });
+          void api.retryThread(task.id);
+        },
+      }
+    : { messages: history, typing: null, error: null, startedAt: task.started_at };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
         <Chip tone="amber">{fidelityLabel[inc.fidelity] ?? inc.fidelity}</Chip>
       </div>
-      <Thread report={inc.report} animate={animate} onAllShown={onAllShown} />
+      <Thread report={inc.report} animate={animate} onAllShown={onAllShown} live={thread} />
       {ready && task.status === "active" && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
           {inc.regression_test && (
@@ -195,6 +213,19 @@ export function IncidentBrief({ data, onDone }: { data: EngagementPayload; onDon
       )}
     </div>
   );
+}
+
+function useThreadHistory(taskId: string, enabled: boolean): ThreadMessage[] {
+  const [messages, setMessages] = useState<ThreadMessage[]>([]);
+  useEffect(() => {
+    if (!enabled) return;
+    let alive = true;
+    api.live(taskId, 0, 0, false).then((r) => alive && setMessages(r.thread)).catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [taskId, enabled]);
+  return messages;
 }
 
 // --- feature --------------------------------------------------------------------------

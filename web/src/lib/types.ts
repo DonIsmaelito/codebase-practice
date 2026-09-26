@@ -76,6 +76,7 @@ export interface Settings {
   timer_mode: "stopwatch" | "countdown";
   mentor_name: string;
   sound: boolean;
+  coach_nudges: boolean;
 }
 
 export interface Learner {
@@ -236,6 +237,7 @@ export interface IncidentReview {
   fix_quality: string;
   fix_review: string;
   process_review: string;
+  communication_review?: string;
   strengths: string[];
   next_time: string;
   lesson: string;
@@ -305,7 +307,7 @@ export interface EngagementPayload {
   tasks: Record<TaskKind, Task>;
   hints: Partial<Record<TaskKind, string[]>>;
   hint_total: { incident: number; feature: number };
-  settings: { mentor_name: string; timer_mode: string; sound: boolean };
+  settings: { mentor_name: string; timer_mode: string; sound: boolean; coach_nudges: boolean };
   habit: { text: string; company: string; case_id: string; ts: number } | null;
 }
 
@@ -426,7 +428,59 @@ export interface ProgressRow {
 }
 
 export interface ChatMessage {
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "nudge"; // nudge = the mentor checking in unprompted
   content: string;
   ts?: number;
+}
+
+export interface ThreadMessage {
+  id: number;
+  ts: number;
+  author: string;
+  author_role: string | null;
+  body: string;
+  kind: "learner" | "reply" | "beat" | "resolution";
+}
+
+export interface Nudge {
+  id: number;
+  ts: number;
+  content: string;
+}
+
+export interface LivePayload {
+  thread: ThreadMessage[];
+  typing: string | null;
+  reply_error: string | null;
+  cast: "ready" | "generating" | "failed" | "none" | null;
+  nudges: Nudge[];
+}
+
+export type ReplayKind = "read" | "search" | "run" | "think" | "fix" | "verify";
+
+export interface ReplayStep {
+  kind: ReplayKind;
+  say: string;
+  at: number;
+  you_at: number | null;
+  path?: string;
+  line?: number;
+  end_line?: number | null;
+  query?: string;
+  hits?: { path: string; line: number; text: string }[];
+  command?: string;
+  output?: string;
+  exit_code?: number;
+  diff?: string;
+}
+
+export interface ReplayPayload {
+  status: "ready" | "generating" | "failed" | "none";
+  error?: string | null;
+  steps?: ReplayStep[];
+  takeaway?: string;
+  files?: Record<string, string>;
+  fixed?: Record<string, string>;
+  expert_seconds?: number;
+  your_seconds?: number;
 }

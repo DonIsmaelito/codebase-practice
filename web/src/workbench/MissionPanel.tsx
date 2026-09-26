@@ -1,10 +1,12 @@
 import clsx from "clsx";
-import { Bot, ClipboardList, Loader2, NotebookText, Sparkles } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
+import { Bot, ClipboardList, Clapperboard, Loader2, NotebookText, Sparkles, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { Button } from "../components/ui";
+import { Avatar, Button, Markdown } from "../components/ui";
 import { api } from "../lib/api";
-import type { EngagementPayload, TaskKind } from "../lib/types";
+import type { EngagementPayload, Nudge, TaskKind } from "../lib/types";
+import { muteCoach, useLivePulse } from "./live";
 import MentorChat from "./mission/MentorChat";
 import ReconBrief from "./mission/ReconBrief";
 import { FeatureBrief, IncidentBrief } from "./mission/TaskBriefs";
@@ -23,8 +25,12 @@ export function focusKind(data: EngagementPayload): TaskKind | null {
 }
 
 export default function MissionPanel({ data, viewKind, onDebrief }: { data: EngagementPayload; viewKind: TaskKind | null; onDebrief: (k: TaskKind) => void }) {
-  const { rightTab, featurePreparing } = useWB(useShallow((s) => ({ rightTab: s.rightTab, featurePreparing: s.featurePreparing })));
+  const { rightTab, featurePreparing, unread, nudgeToast } = useWB(
+    useShallow((s) => ({ rightTab: s.rightTab, featurePreparing: s.featurePreparing, unread: s.unread, nudgeToast: s.nudgeToast })),
+  );
   const set = useWB.getState().set;
+  useLivePulse(data);
+  const mentorName = data.settings.mentor_name || "Sam";
   const kind = viewKind ?? focusKind(data);
   const task = kind ? data.tasks[kind] : null;
   const par =
@@ -44,21 +50,28 @@ export default function MissionPanel({ data, viewKind, onDebrief }: { data: Enga
         </div>
       )}
       <div className="flex h-9 shrink-0 items-center gap-1 border-b border-line px-2">
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => set({ rightTab: t.id })}
-            className={clsx(
-              "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[12.5px]",
-              rightTab === t.id ? "bg-ink-3 text-fg-0" : "text-fg-2 hover:text-fg-1",
-            )}
-          >
-            {t.icon}
-            {t.label}
-          </button>
-        ))}
+        {tabs.map((t) => {
+          const news = t.id !== "notes" && rightTab !== t.id && unread[t.id] > 0;
+          return (
+            <button
+              key={t.id}
+              onClick={() => set({ rightTab: t.id, unread: { ...useWB.getState().unread, ...(t.id !== "notes" && { [t.id]: 0 }) }, ...(t.id === "mentor" && { nudgeToast: null }) })}
+              className={clsx(
+                "relative inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[12.5px]",
+                rightTab === t.id ? "bg-ink-3 text-fg-0" : "text-fg-2 hover:text-fg-1",
+              )}
+            >
+              {t.icon}
+              {t.label}
+              {news && <span className={clsx("size-1.5 animate-breathe rounded-full", t.id === "mentor" ? "bg-teal" : "bg-amber")} />}
+            </button>
+          );
+        })}
       </div>
       <div className="relative min-h-0 flex-1">
+        <AnimatePresence>
+          {nudgeToast && rightTab !== "mentor" && task && <NudgeCard key={nudgeToast.id} nudge={nudgeToast} mentorName={mentorName} taskId={task.id} />}
+        </AnimatePresence>
         <div className={clsx("absolute inset-0 overflow-y-auto px-4 py-4", rightTab !== "brief" && "hidden")}>
           {featurePreparing && <FeaturePreparing data={data} />}
           {!featurePreparing && kind === "recon" && <ReconBrief data={data} />}
@@ -69,10 +82,15 @@ export default function MissionPanel({ data, viewKind, onDebrief }: { data: Enga
               Open the debrief
             </Button>
           )}
+          {!featurePreparing && kind === "incident" && task && ["passed", "revealed", "failed"].includes(task.status) && (
+            <Button className="mt-2 w-full" ghost icon={<Clapperboard className="size-4" />} onClick={() => set({ replayTask: task.id })}>
+              Watch {mentorName} work it
+            </Button>
+          )}
         </div>
         {task && (
           <div className={clsx("absolute inset-0", rightTab !== "mentor" && "hidden")}>
-            <MentorChat key={task.id} taskId={task.id} kind={task.kind} mentorName={data.settings.mentor_name || "Sam"} />
+            <MentorChat key={task.id} taskId={task.id} kind={task.kind} mentorName={mentorName} />
           </div>
         )}
         <div className={clsx("absolute inset-0 p-3", rightTab !== "notes" && "hidden")}>
@@ -80,6 +98,43 @@ export default function MissionPanel({ data, viewKind, onDebrief }: { data: Enga
         </div>
       </div>
     </div>
+  );
+}
+
+/** The coach checking in after you've been stuck a while: one question, easy to wave off. */
+function NudgeCard({ nudge, mentorName, taskId }: { nudge: Nudge; mentorName: string; taskId: string }) {
+  const set = useWB.getState().set;
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -8 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -8 }}
+      className="absolute inset-x-3 top-3 z-10 rounded-xl border border-teal/30 bg-ink-2 p-3.5 shadow-2xl shadow-black/50"
+    >
+      <div className="flex items-center gap-2">
+        <Avatar name={mentorName} size={22} />
+        <span className="text-[12.5px] font-semibold text-fg-0">{mentorName}</span>
+        <span className="text-[11.5px] text-teal">checking in</span>
+        <button onClick={() => set({ nudgeToast: null })} className="ml-auto rounded p-0.5 text-fg-3 hover:text-fg-0" title="Dismiss">
+          <X className="size-3.5" />
+        </button>
+      </div>
+      <Markdown className="mt-2 text-[13px] [&_p]:text-fg-0">{nudge.content}</Markdown>
+      <div className="mt-3 flex items-center gap-3">
+        <Button size="sm" tone="teal" onClick={() => set({ rightTab: "mentor", nudgeToast: null, unread: { ...useWB.getState().unread, mentor: 0 } })}>
+          Answer {mentorName}
+        </Button>
+        <button
+          onClick={() => {
+            muteCoach(taskId);
+            set({ nudgeToast: null });
+          }}
+          className="text-[11.5px] text-fg-3 hover:text-fg-1"
+        >
+          No more check-ins this session
+        </button>
+      </div>
+    </motion.div>
   );
 }
 

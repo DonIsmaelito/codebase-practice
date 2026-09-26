@@ -23,29 +23,6 @@ from typing import Any
 from .. import config, curriculum, db, llm, sandbox
 from . import scheduler
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS drills (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    created_at  REAL NOT NULL,
-    concept_id  TEXT NOT NULL,
-    kind        TEXT NOT NULL,
-    payload     TEXT NOT NULL,
-    answered_at REAL,
-    correct     INTEGER,
-    given       TEXT
-);
-"""
-
-_ready = False
-
-
-def _ensure() -> None:
-    global _ready
-    if not _ready:
-        db.conn().executescript(SCHEMA)
-        _ready = True
-
-
 DRILL_SYSTEM = """You write short, sharp Python drills for Cold Start. Each drill isolates one concept in 5-18 lines of realistic-looking code (names from real domains — invoices, sensors, playlists — never foo/bar). The best drills have one surprising-but-fair twist that separates people who *know* Python semantics from people who guess. No trick questions about formatting, no reliance on dict/set iteration order of hash-randomized strings, no randomness, no time, no I/O."""
 
 
@@ -75,7 +52,6 @@ def _pick_concepts(n: int) -> list[curriculum.Concept]:
 
 async def generate_batch(n: int = 6) -> int:
     """Generate and verify a batch of drills. Returns how many were kept."""
-    _ensure()
     concepts = _pick_concepts(n)
     spec = [{"concept_id": c.id, "name": c.name, "summary": c.summary, "patterns": list(c.bug_patterns[:2]),
              "kind": "predict" if i % 3 != 2 else "spot"} for i, c in enumerate(concepts)]
@@ -151,7 +127,6 @@ async def _verify(d: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def next_drill() -> dict[str, Any] | None:
-    _ensure()
     row = db.one("SELECT id, concept_id, kind, payload FROM drills WHERE answered_at IS NULL ORDER BY id LIMIT 1")
     if not row:
         return None
@@ -162,7 +137,6 @@ def next_drill() -> dict[str, Any] | None:
 
 
 def pending() -> int:
-    _ensure()
     return db.one("SELECT COUNT(*) AS n FROM drills WHERE answered_at IS NULL")["n"]
 
 
@@ -171,7 +145,6 @@ def _norm(s: str) -> str:
 
 
 def answer(drill_id: int, given: str) -> dict[str, Any]:
-    _ensure()
     row = db.one("SELECT * FROM drills WHERE id = ?", drill_id)
     if not row:
         raise ValueError("no such drill")
@@ -195,7 +168,6 @@ def answer(drill_id: int, given: str) -> dict[str, Any]:
 
 
 def stats() -> dict[str, Any]:
-    _ensure()
     row = db.one("SELECT COUNT(*) AS n FROM drills WHERE answered_at IS NOT NULL AND answered_at > ?",
                  time.time() - 7 * 86400)
     return {"week_answered": row["n"] or 0, "pending": pending()}

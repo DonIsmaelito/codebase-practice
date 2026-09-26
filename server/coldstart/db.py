@@ -1,7 +1,9 @@
-"""SQLite persistence. One file, WAL mode, tiny helper layer — no ORM.
+"""Persistence: SQLite locally, InsForge Postgres when hosted.
 
-Everything user-specific (progress, journal, settings, spend) lives here; the
-generated codebases themselves live on disk under data/library/.
+The rest of the app writes plain SQL with `?` placeholders through a tiny
+helper layer (one / all_ / run / tx / kv_*). On Postgres the placeholders are
+translated to `%s`; the schema itself lives in migrations/ (applied with the
+InsForge CLI), while SQLite creates it on first use.
 """
 
 from __future__ import annotations
@@ -15,7 +17,7 @@ from typing import Any, Iterator
 
 from . import config
 
-SCHEMA = """
+SQLITE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS cases (
     id          TEXT PRIMARY KEY,
     created_at  REAL NOT NULL,
@@ -118,6 +120,17 @@ CREATE TABLE IF NOT EXISTS kv (
     key    TEXT PRIMARY KEY,
     value  TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS drills (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at  REAL NOT NULL,
+    concept_id  TEXT NOT NULL,
+    kind        TEXT NOT NULL,
+    payload     TEXT NOT NULL,
+    answered_at REAL,
+    correct     INTEGER,
+    given       TEXT
+);
 """
 
 _local = threading.local()
@@ -125,25 +138,94 @@ _init_lock = threading.Lock()
 _initialized = False
 
 
-def _connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(config.DB_PATH, timeout=30, isolation_level=None)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    conn.execute("PRAGMA busy_timeout=30000")
-    return conn
+class _Cursor:
+    """What run() returns: rows for RETURNING queries, rowcount for the rest."""
+
+    def __init__(self, rows: list[dict[str, Any]], rowcount: int):
+        self._rows = rows
+        self.rowcount = rowcount
+
+    def fetchone(self) -> dict[str, Any] | None:
+        return self._rows[0] if self._rows else None
+
+    def fetchall(self) -> list[dict[str, Any]]:
+        return self._rows
 
 
-def conn() -> sqlite3.Connection:
-    """A per-thread connection (sqlite3 connections aren't thread-safe)."""
+class _SQLite:
+    def __init__(self) -> None:
+        self.raw = sqlite3.connect(config.DB_PATH, timeout=30, isolation_level=None)
+        self.raw.row_factory = sqlite3.Row
+        self.raw.execute("PRAGMA journal_mode=WAL")
+        self.raw.execute("PRAGMA foreign_keys=ON")
+        self.raw.execute("PRAGMA busy_timeout=30000")
+
+    def execute(self, sql: str, params: tuple[Any, ...] = ()) -> _Cursor:
+        cur = self.raw.execute(sql, params)
+        rows = [dict(r) for r in cur.fetchall()] if cur.description else []
+        return _Cursor(rows, cur.rowcount)
+
+    def close(self) -> None:
+        self.raw.close()
+
+    @contextmanager
+    def transaction(self) -> Iterator["_SQLite"]:
+        self.raw.execute("BEGIN IMMEDIATE")
+        try:
+            yield self
+        except BaseException:
+            self.raw.execute("ROLLBACK")
+            raise
+        else:
+            self.raw.execute("COMMIT")
+
+
+class _Postgres:
+    def __init__(self) -> None:
+        import psycopg
+        from psycopg.rows import dict_row
+
+        self._psycopg = psycopg
+        self.raw = psycopg.connect(
+            config.DATABASE_URL, autocommit=True, row_factory=dict_row, connect_timeout=15,
+            keepalives=1, keepalives_idle=30, keepalives_interval=10, keepalives_count=3,
+            application_name="coldstart",
+        )
+
+    @staticmethod
+    def _sql(sql: str) -> str:
+        return sql.replace("?", "%s")
+
+    def execute(self, sql: str, params: tuple[Any, ...] = ()) -> _Cursor:
+        with self.raw.cursor() as cur:
+            cur.execute(self._sql(sql), params or None)
+            rows = [dict(r) for r in cur.fetchall()] if cur.description else []
+            return _Cursor(rows, cur.rowcount)
+
+    def close(self) -> None:
+        self.raw.close()
+
+    @contextmanager
+    def transaction(self) -> Iterator["_Postgres"]:
+        with self.raw.transaction():
+            yield self
+
+
+def _connect() -> _SQLite | _Postgres:
+    return _Postgres() if config.CLOUD_DB else _SQLite()
+
+
+def conn() -> _SQLite | _Postgres:
+    """A per-thread connection (neither driver's connections are thread-safe)."""
     global _initialized
     if not _initialized:
         with _init_lock:
             if not _initialized:
                 config.ensure_dirs()
-                c = _connect()
-                c.executescript(SCHEMA)
-                c.close()
+                if not config.CLOUD_DB:
+                    c = _SQLite()
+                    c.raw.executescript(SQLITE_SCHEMA)
+                    c.raw.close()
                 _initialized = True
     c = getattr(_local, "conn", None)
     if c is None:
@@ -151,30 +233,49 @@ def conn() -> sqlite3.Connection:
     return c
 
 
-@contextmanager
-def tx() -> Iterator[sqlite3.Connection]:
-    c = conn()
-    c.execute("BEGIN IMMEDIATE")
+def _execute(sql: str, params: tuple[Any, ...]) -> _Cursor:
     try:
-        yield c
-    except BaseException:
-        c.execute("ROLLBACK")
+        return conn().execute(sql, params)
+    except Exception as err:
+        # A dropped Postgres connection (idle timeout, deploy, network blip): reconnect once.
+        if config.CLOUD_DB and _is_disconnect(err):
+            _local.conn = _connect()
+            return _local.conn.execute(sql, params)
         raise
-    else:
-        c.execute("COMMIT")
+
+
+def _is_disconnect(err: Exception) -> bool:
+    try:
+        import psycopg
+    except ImportError:  # pragma: no cover
+        return False
+    return isinstance(err, (psycopg.OperationalError, psycopg.InterfaceError))
+
+
+@contextmanager
+def tx() -> Iterator[_SQLite | _Postgres]:
+    """Run several statements atomically: `with db.tx() as c: c.execute(sql, params)`."""
+    c = conn()
+    with c.transaction():
+        yield c
 
 
 def one(sql: str, *params: Any) -> dict[str, Any] | None:
-    row = conn().execute(sql, params).fetchone()
-    return dict(row) if row else None
+    return _execute(sql, params).fetchone()
 
 
 def all_(sql: str, *params: Any) -> list[dict[str, Any]]:
-    return [dict(r) for r in conn().execute(sql, params).fetchall()]
+    return _execute(sql, params).fetchall()
 
 
-def run(sql: str, *params: Any) -> sqlite3.Cursor:
-    return conn().execute(sql, params)
+def run(sql: str, *params: Any) -> _Cursor:
+    return _execute(sql, params)
+
+
+def insert_id(sql: str, *params: Any) -> int:
+    """INSERT ... and return the new row's id (both backends support RETURNING)."""
+    row = _execute(sql.rstrip().rstrip(";") + " RETURNING id", params).fetchone()
+    return int(row["id"]) if row else 0
 
 
 # --- small JSON helpers -------------------------------------------------------
@@ -222,10 +323,10 @@ def update_settings(patch: dict[str, Any]) -> dict[str, Any]:
 def add_practice_seconds(seconds: float, when: float | None = None) -> None:
     if seconds <= 0:
         return
-    day = time.strftime("%Y-%m-%d", time.localtime(when or time.time()))
+    day = time.strftime("%Y-%m-%d", time.localtime(time.time() if when is None else when))
     run(
         "INSERT INTO practice_days(day, seconds) VALUES(?, ?) "
-        "ON CONFLICT(day) DO UPDATE SET seconds = seconds + excluded.seconds",
+        "ON CONFLICT(day) DO UPDATE SET seconds = practice_days.seconds + excluded.seconds",
         day,
         seconds,
     )

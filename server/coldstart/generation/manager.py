@@ -44,9 +44,24 @@ class GenerationManager:
         self.last_error: str | None = None
 
     def start(self) -> None:
-        db.run("UPDATE cases SET status = 'failed', error = 'interrupted (server restarted)' "
-               "WHERE status = 'generating'")
+        self._reap_stale()
         self._task = asyncio.create_task(self._loop(), name="generation-manager")
+
+    def _reap_stale(self, max_age_s: float = 20 * 60) -> None:
+        """Fail 'generating' cases nobody is working on (e.g. the server died mid-run).
+
+        Staleness is judged by the last stage heartbeat, not by this process's
+        memory, so a CLI generation running alongside the server is left alone.
+        """
+        now = time.time()
+        for row in db.all_("SELECT id, stage, created_at FROM cases WHERE status = 'generating'"):
+            if row["id"] in self._running:
+                continue
+            stage = db.loads(row["stage"], None) or {}
+            last = stage.get("ts") or row["created_at"]
+            if now - last > max_age_s:
+                db.run("UPDATE cases SET status = 'failed', error = 'interrupted (no progress for 20 min)' "
+                       "WHERE id = ? AND status = 'generating'", row["id"])
 
     async def stop(self) -> None:
         for t in list(self._running.values()):
@@ -84,6 +99,7 @@ class GenerationManager:
             self._wake.clear()
 
     async def _tick(self) -> None:
+        self._reap_stale()
         if self._running:
             return
         queued = db.one("SELECT id, spec FROM cases WHERE status = 'queued' ORDER BY created_at LIMIT 1")

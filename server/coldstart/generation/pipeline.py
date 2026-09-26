@@ -89,8 +89,12 @@ class Pipeline:
 
     async def call(self, stage: str, messages: list[llm.Message], *, role: str, max_tokens: int,
                    reasoning: str | None = None, expected_chars: int | None = None) -> llm.Completion:
+        last = [0.0]
+
         def progress(chars: int) -> None:
-            if expected_chars:
+            now = time.monotonic()
+            if expected_chars and now - last[0] >= 1.0:  # at most one DB write per second
+                last[0] = now
                 self.stage(stage, f"{chars // 1000}k chars", min(0.97, chars / expected_chars))
 
         started = time.monotonic()

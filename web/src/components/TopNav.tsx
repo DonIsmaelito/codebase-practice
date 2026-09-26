@@ -6,6 +6,7 @@ import { useDesk } from "../lib/desk";
 
 const links = [
   { to: "/", label: "Desk", end: true },
+  { to: "/drills", label: "Drills" },
   { to: "/atlas", label: "Atlas" },
   { to: "/journal", label: "Journal" },
   { to: "/progress", label: "Progress" },

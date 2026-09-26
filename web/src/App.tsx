@@ -5,6 +5,7 @@ import TopNav from "./components/TopNav";
 import Atlas from "./pages/Atlas";
 import Briefing from "./pages/Briefing";
 import Desk from "./pages/Desk";
+import Drills from "./pages/Drills";
 import Journal from "./pages/Journal";
 import Playbook from "./pages/Playbook";
 import Progress from "./pages/Progress";
@@ -38,6 +39,7 @@ export default function App() {
       <Route path="/case/:caseId" element={<Shell><Briefing /></Shell>} />
       <Route path="/atlas" element={<Shell><Atlas /></Shell>} />
       <Route path="/journal" element={<Shell><Journal /></Shell>} />
+      <Route path="/drills" element={<Shell><Drills /></Shell>} />
       <Route path="/progress" element={<Shell><Progress /></Shell>} />
       <Route path="/playbook" element={<Shell><Playbook /></Shell>} />
       <Route path="/playbook/:slug" element={<Shell><Playbook /></Shell>} />

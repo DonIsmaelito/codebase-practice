@@ -22,7 +22,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from . import config, curriculum, db, llm
 from .generation.manager import manager
 from .learning import engagements as E
-from .learning import mentor, review, scheduler
+from .learning import drills, mentor, review, scheduler
 from .runtime import intel, search
 from .runtime.terminal import TerminalSession
 from .runtime.workspace import Workspace, WorkspaceError
@@ -550,6 +550,42 @@ async def playbook_article(slug: str) -> dict[str, Any]:
         if a["slug"] == slug:
             return a
     raise HTTPException(404)
+
+
+# --- drills ---------------------------------------------------------------------------------------
+
+_drill_task: asyncio.Task | None = None
+
+
+def _top_up_drills() -> None:
+    global _drill_task
+    if drills.pending() >= 3 or (_drill_task and not _drill_task.done()):
+        return
+
+    async def run() -> None:
+        try:
+            await drills.generate_batch(6)
+        except Exception as err:  # noqa: BLE001
+            log.warning("drill generation failed: %s", err)
+
+    _drill_task = asyncio.create_task(run())
+
+
+@app.get("/api/drills/next")
+async def drill_next() -> dict[str, Any]:
+    _top_up_drills()
+    return {"drill": drills.next_drill(), "generating": bool(_drill_task and not _drill_task.done()),
+            "stats": drills.stats()}
+
+
+@app.post("/api/drills/{drill_id}/answer")
+async def drill_answer(drill_id: int, body: dict = Body(...)) -> dict[str, Any]:
+    try:
+        result = drills.answer(drill_id, str(body.get("answer", "")))
+    except ValueError as err:
+        raise HTTPException(404, str(err)) from err
+    _top_up_drills()
+    return result
 
 
 # --- settings & spend -------------------------------------------------------------------------

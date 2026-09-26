@@ -78,6 +78,9 @@ class GenerationManager:
         self.poke()
         return case_id
 
+    def busy(self) -> bool:
+        return bool(self._running)
+
     def status(self) -> dict[str, Any]:
         return {
             "running": list(self._running),
@@ -111,6 +114,11 @@ class GenerationManager:
             return
         ready = db.one("SELECT COUNT(*) AS n FROM cases WHERE status IN ('ready', 'generating', 'queued')")["n"]
         if ready >= int(settings.get("buffer_size", 2)):
+            return
+        try:
+            llm.check_budget()
+        except llm.LLMError as err:
+            self.last_error = str(err)
             return
         key = await llm.key_status()
         remaining = key.get("remaining")

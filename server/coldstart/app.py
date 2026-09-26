@@ -2,9 +2,9 @@
 
 Because this server can run a shell, other websites are kept out: Host must be
 localhost or the configured public host (DNS-rebinding), mutating requests
-need a custom header (CSRF), and the terminal WebSocket checks Origin. When
-hosted, every API call also needs a valid InsForge session for an
-allow-listed account (see auth.py).
+need a custom header (CSRF), and the terminal WebSocket checks Origin. There is
+no login; AI spend is capped per day (llm.py) and generated code is jailed
+(sandbox.py).
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from fastapi import Body, FastAPI, HTTPException, Request, WebSocket, WebSocketD
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import auth, config, curriculum, db, llm, persist, sandbox
+from . import config, curriculum, db, llm, persist, sandbox
 from .generation import features
 from .generation.manager import manager
 from .learning import engagements as E
@@ -38,20 +38,44 @@ async def lifespan(app: FastAPI):
     db.conn()
     manager.start()
     flusher = asyncio.create_task(persist.flush_loop(), name="workspace-flush")
+    waker = asyncio.create_task(_keep_awake_while_busy(), name="keep-awake")
     if sandbox.JAIL:
         report = await sandbox.self_check()
         log.warning("sandbox self-check: %s", report)
         db.kv_set("sandbox_selfcheck", {**report, "ts": time.time()})
     yield
     flusher.cancel()
+    waker.cancel()
     await manager.stop()
     await asyncio.to_thread(persist.flush_dirty)  # last chance before the container goes away
 
 
 app = FastAPI(title="Cold Start", lifespan=lifespan)
 
+
+def _background_busy() -> bool:
+    return manager.busy() or features.busy() or bool(_drill_task and not _drill_task.done())
+
+
+async def _keep_awake_while_busy(interval: float = 45.0) -> None:
+    """The hosted machine scales to zero when nobody's visiting, which would kill a
+    half-generated client. While background work runs, visit ourselves through the
+    public URL so the platform sees traffic; once idle, let it sleep."""
+    if not config.PUBLIC_HOSTS:
+        return
+    import httpx
+
+    url = f"https://{config.PUBLIC_HOSTS[0]}/api/health"
+    async with httpx.AsyncClient(timeout=15) as http:
+        while True:
+            await asyncio.sleep(interval)
+            if _background_busy():
+                try:
+                    await http.get(url)
+                except httpx.HTTPError as err:
+                    log.debug("keep-awake ping failed: %s", err)
+
 ALLOWED_HOSTS = {"127.0.0.1", "localhost", *(h.lower() for h in config.PUBLIC_HOSTS)}
-OPEN_PATHS = {"/api/health", "/api/public-config"}
 
 
 def _host_ok(host_header: str | None) -> bool:
@@ -69,11 +93,6 @@ async def guards(request: Request, call_next):
     if path.startswith("/api/") and request.method not in ("GET", "HEAD", "OPTIONS"):
         if request.headers.get("x-coldstart") != "1":
             return JSONResponse({"detail": "missing X-Coldstart header"}, status_code=403)
-    if auth.required() and path.startswith("/api/") and path not in OPEN_PATHS:
-        try:
-            request.state.user = await auth.verify(auth.bearer(request.headers.get("authorization")))
-        except auth.AuthError as err:
-            return JSONResponse({"detail": str(err)}, status_code=err.status)
     return await call_next(request)
 
 
@@ -82,14 +101,6 @@ async def health() -> dict[str, Any]:
     return {"ok": True}
 
 
-@app.get("/api/public-config")
-async def public_config() -> dict[str, Any]:
-    """What the browser needs before it can talk to us (all public values)."""
-    return {
-        "auth": auth.required(),
-        "insforgeUrl": config.INSFORGE_URL if auth.required() else None,
-        "anonKey": config.INSFORGE_ANON_KEY if auth.required() else None,
-    }
 
 
 @app.exception_handler(E.EngagementError)
@@ -470,19 +481,11 @@ async def ws_terminal(websocket: WebSocket, eid: str) -> None:
     if origin not in allowed or not _host_ok(websocket.headers.get("host")):
         await websocket.close(code=4403)
         return
-    await websocket.accept()
-    if auth.required():
-        # Browsers can't set headers on WebSockets: the first message carries the token.
-        try:
-            hello = json.loads(await asyncio.wait_for(websocket.receive_text(), timeout=15))
-            await auth.verify(hello.get("token") if hello.get("t") == "auth" else None)
-        except (auth.AuthError, asyncio.TimeoutError, json.JSONDecodeError, WebSocketDisconnect):
-            await websocket.close(code=4401)
-            return
     ws = Workspace(eid)
     if not ws.exists():
         await websocket.close(code=4404)
         return
+    await websocket.accept()
     cols = int(websocket.query_params.get("cols", 100))
     rows = int(websocket.query_params.get("rows", 30))
     session = TerminalSession(
@@ -671,8 +674,8 @@ async def get_settings() -> dict[str, Any]:
 
 @app.put("/api/settings")
 async def put_settings(body: dict = Body(...)) -> dict[str, Any]:
-    allowed = {"models", "buffer_size", "auto_generate", "budget_floor_usd", "default_plan",
-               "timer_mode", "mentor_name", "sound"}
+    allowed = {"models", "buffer_size", "auto_generate", "budget_floor_usd", "daily_budget_usd",
+               "default_plan", "timer_mode", "mentor_name", "sound"}
     patch = {k: v for k, v in body.items() if k in allowed}
     if "level" in body:
         scheduler.set_level(float(body["level"]))

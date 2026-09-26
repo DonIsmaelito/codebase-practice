@@ -107,7 +107,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         ok &= passed
         print(f"  {'✓' if passed else '✗'} {label}" + (f"  — {hint}" if not passed and hint else ""))
 
-    print("Cold Start doctor")
+    print("Environment check")
     check("OPENROUTER_API_KEY set", bool(config.OPENROUTER_API_KEY), "add it to .env")
     check("runtime venv", config.RUNTIME_PYTHON.exists(), "run ./coldstart setup")
     check("sandbox-exec available", sandbox.SANDBOX_EXEC is not None, "non-macOS: code runs unsandboxed")

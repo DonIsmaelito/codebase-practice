@@ -67,7 +67,7 @@ class Workspace:
             raise WorkspaceError(f"git {' '.join(args)} failed: {res.stderr.strip()}")
         return res.stdout
 
-    def commit(self, message: str, author: tuple[str, str] = ("Cold Start", "coldstart@localhost")) -> str:
+    def commit(self, message: str, author: tuple[str, str] = ("Workspace", "workspace@localhost")) -> str:
         name, email = author
         self.git("add", "-A")
         self.git("-c", f"user.name={name}", "-c", f"user.email={email}",

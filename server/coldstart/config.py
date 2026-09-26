@@ -32,19 +32,15 @@ OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 # --- hosted mode (InsForge) ---------------------------------------------------
 # Set DATABASE_URL to keep all state in InsForge Postgres instead of SQLite;
 # INSFORGE_URL + INSFORGE_API_KEY let the server persist case bundles and
-# workspaces to InsForge Storage (the container disk is ephemeral) and verify
-# InsForge Auth sessions. COLDSTART_ALLOWED_EMAILS turns the login gate on.
+# workspaces to InsForge Storage (the container disk is ephemeral).
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 INSFORGE_URL = os.environ.get("INSFORGE_URL", "").rstrip("/")
 INSFORGE_API_KEY = os.environ.get("INSFORGE_API_KEY", "")      # admin key — server only
-INSFORGE_ANON_KEY = os.environ.get("INSFORGE_ANON_KEY", "")    # public, handed to the browser SDK
 STORAGE_BUCKET = os.environ.get("COLDSTART_STORAGE_BUCKET", "coldstart")
-ALLOWED_EMAILS = {e.strip().lower() for e in os.environ.get("COLDSTART_ALLOWED_EMAILS", "").split(",") if e.strip()}
 PUBLIC_HOSTS = [h.strip() for h in os.environ.get("COLDSTART_PUBLIC_HOSTS", "").split(",") if h.strip()]
 
 CLOUD_DB = bool(DATABASE_URL)
 CLOUD_STORAGE = bool(INSFORGE_URL and INSFORGE_API_KEY)
-AUTH_REQUIRED = bool(ALLOWED_EMAILS and INSFORGE_URL)
 
 # Every model role can be re-pointed from the Settings page; these are the
 # defaults. The user asked for max quality, so everything starts on Opus.
@@ -83,6 +79,7 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "buffer_size": 2,            # ready cases to keep in the inbox
     "auto_generate": True,
     "budget_floor_usd": 1.0,     # stop background generation below this remaining credit
+    "daily_budget_usd": 15.0,    # hard cap on AI spend per rolling 24h (0 = off)
     "default_plan": ["recon", "incident"],
     "timer_mode": "stopwatch",   # stopwatch | countdown
     "mentor_name": "Sam",

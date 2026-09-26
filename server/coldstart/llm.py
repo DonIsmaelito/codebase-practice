@@ -114,6 +114,31 @@ def _body(model: str, messages: list[Message], *, max_tokens: int,
     return body
 
 
+_spend_cache: tuple[float, float] | None = None
+
+
+def _spent_last_24h() -> float:
+    global _spend_cache
+    now = time.time()
+    if _spend_cache and now - _spend_cache[0] < 20:
+        return _spend_cache[1]
+    row = db.one("SELECT COALESCE(SUM(cost_usd), 0) AS s FROM llm_calls WHERE ts > ?", now - 86_400)
+    _spend_cache = (now, float(row["s"] or 0))
+    return _spend_cache[1]
+
+
+def check_budget() -> None:
+    """Refuse new AI calls once the rolling 24h spend hits the cap (Settings → daily budget).
+
+    The app has no login, so this is what stops anyone — or a runaway bug —
+    from draining the OpenRouter credit in one go.
+    """
+    cap = float(db.settings().get("daily_budget_usd") or 0)
+    if cap > 0 and _spent_last_24h() >= cap:
+        raise LLMError(f"Today's AI budget (${cap:.0f}) is used up. It frees up over the next 24 hours, "
+                       "or raise it in Settings.")
+
+
 async def _stream_raw(body: dict[str, Any]) -> AsyncIterator[dict[str, Any]]:
     async with _http().stream("POST", "/chat/completions", json=body) as resp:
         if resp.status_code >= 400:
@@ -161,6 +186,7 @@ async def complete(
     model = model or model_for(role)
     if not config.OPENROUTER_API_KEY:
         raise LLMError("OPENROUTER_API_KEY is not set (add it to .env)")
+    check_budget()
 
     last_err: Exception | None = None
     for attempt in range(retries + 1):
@@ -225,6 +251,7 @@ async def stream(
 ) -> AsyncIterator[str]:
     """Yield text deltas as they arrive (used for the mentor chat)."""
     model = model or model_for(role)
+    check_budget()
     started = time.monotonic()
     usage: dict[str, Any] = {}
     body = _body(model, messages, max_tokens=max_tokens, temperature=temperature,

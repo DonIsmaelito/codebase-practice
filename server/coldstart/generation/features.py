@@ -32,6 +32,10 @@ def status(case_id: str) -> str:
     return "none"
 
 
+def busy() -> bool:
+    return any(not job.done() for job in _jobs.values())
+
+
 def error(case_id: str) -> str | None:
     return _errors.get(case_id)
 

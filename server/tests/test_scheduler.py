@@ -76,3 +76,16 @@ def test_focus_overrides_incident_choice():
     spec = scheduler.build_spec(focus="ds-heaps", level_override=4)
     assert spec["incident_concept"]["id"] == "ds-heaps"
     assert spec["level"] == 4 and spec["recon_mode"] == "open"
+
+
+def test_daily_budget_blocks_new_ai_calls():
+    import asyncio
+
+    from coldstart import llm
+
+    db.run("INSERT INTO llm_calls(ts, role, model, cost_usd, ok) VALUES(?,?,?,?,?)", time.time(), "designer", "m", 20.0, 1)
+    llm._spend_cache = None
+    with pytest.raises(llm.LLMError, match="budget"):
+        asyncio.run(llm.complete([{"role": "user", "content": "hi"}], role="grader"))
+    db.update_settings({"daily_budget_usd": 0})  # 0 turns the cap off
+    llm.check_budget()

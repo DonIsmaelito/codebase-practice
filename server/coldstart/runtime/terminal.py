@@ -22,7 +22,7 @@ from typing import Callable
 from .. import config, sandbox
 
 ZSHRC = r"""
-# Cold Start terminal (sandboxed: no network, writes limited to this workspace)
+# Workspace terminal (sandboxed: no network, writes limited to this workspace)
 export PATH="$VIRTUAL_ENV/bin:$PATH"
 setopt PROMPT_SUBST
 unsetopt BEEP
@@ -40,7 +40,7 @@ alias t='python -m pytest -q'
 bindkey -e
 bindkey '^[[A' up-line-or-search
 bindkey '^[[B' down-line-or-search
-printf '\e[38;5;245mCold Start shell · python %s · sandboxed (no network) · try: pytest -q, python -i, git diff\e[0m\n' "$(python -c 'import sys;print(sys.version.split()[0])')"
+printf '\e[38;5;245mpython %s · sandboxed (no network) · try: pytest -q, python -i, git diff\e[0m\n' "$(python -c 'import sys;print(sys.version.split()[0])')"
 """
 
 ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b[@-Z\\-_]")

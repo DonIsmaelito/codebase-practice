@@ -6,6 +6,7 @@
 #   ./coldstart generate   generate client cases in the foreground (see --help)
 #   ./coldstart doctor     check the environment
 #   ./coldstart spend      show what the AI has cost so far
+#   ./coldstart deploy     rebuild + redeploy the hosted app on InsForge (needs .env.deploy)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -45,11 +46,16 @@ case "$cmd" in
     (cd "$ROOT/web" && npm run dev) &
     wait
     ;;
+  deploy)
+    [[ -f "$ROOT/.env.deploy" ]] || { echo "Missing .env.deploy (the hosted app's env vars) — see README."; exit 1; }
+    cd "$ROOT" && exec npx -y @insforge/cli compute deploy . --name coldstart --port 8080 \
+      --cpu shared-2x --memory 2048 --region sjc --env-file .env.deploy
+    ;;
   generate|doctor|spend)
     cd "$ROOT/server" && exec "$PY" -m coldstart.cli "$cmd" "$@"
     ;;
   *)
-    sed -n '2,8p' "$0"
+    sed -n '2,9p' "$0"
     exit 1
     ;;
 esac

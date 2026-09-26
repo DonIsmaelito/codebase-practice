@@ -1,0 +1,14 @@
+.git
+.env
+.env.*
+!.env.example
+.insforge
+data
+.runtime
+**/node_modules
+web/dist
+server/.venv
+**/__pycache__
+**/.pytest_cache
+migrations
+docs

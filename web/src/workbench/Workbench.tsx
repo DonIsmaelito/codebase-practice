@@ -1,11 +1,11 @@
 import clsx from "clsx";
 import { AnimatePresence, motion } from "motion/react";
-import { ArrowLeft, Compass, EyeOff, FileSearch, Files, GitCompareArrows, ListTree, LogOut } from "lucide-react";
+import { ArrowLeft, Compass, EyeOff, FileSearch, Files, GitCompareArrows, HelpCircle, ListTree, LogOut } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Group, Panel, Separator, usePanelRef } from "react-resizable-panels";
 import { Link, useNavigate, useParams } from "react-router";
 import { useShallow } from "zustand/react/shallow";
-import { Avatar, Button, Markdown, Monogram, Spinner } from "../components/ui";
+import { Avatar, Button, Kbd, Markdown, Monogram, Spinner } from "../components/ui";
 import { api } from "../lib/api";
 import { useDesk } from "../lib/desk";
 import { disposeAllModels, registerPythonIntel, setIntelContext } from "../lib/monaco";
@@ -30,6 +30,7 @@ export default function Workbench() {
   const [error, setError] = useState<string | null>(null);
   const [viewKind, setViewKind] = useState<TaskKind | null>(null);
   const [debrief, setDebrief] = useState<TaskKind | null>(null);
+  const [help, setHelp] = useState(false);
   const sideRef = usePanelRef();
   const bottomRef = usePanelRef();
 
@@ -166,6 +167,9 @@ export default function Workbench() {
         <div className="mx-auto">
           <Stepper data={data} viewKind={viewKind} onView={(k) => { setViewKind(k === focusKind(data) ? null : k); set({ rightTab: "brief" }); }} />
         </div>
+        <button onClick={() => setHelp(true)} className="grid size-7 place-items-center rounded-md text-fg-2 hover:bg-ink-3 hover:text-fg-0" title="Shortcuts & tips">
+          <HelpCircle className="size-4" />
+        </button>
         {!finished ? (
           <Button size="sm" ghost icon={<LogOut className="size-3.5" />} onClick={() => void endEngagement()}>
             Wrap up
@@ -230,6 +234,7 @@ export default function Workbench() {
       {quickOpen && <QuickOpen />}
       <AnimatePresence>{briefing && !finished && <Intro key="intro" />}</AnimatePresence>
       {debrief && <Debrief data={data} kind={debrief} onClose={() => setDebrief(null)} />}
+      {help && <HelpSheet onClose={() => setHelp(false)} />}
     </div>
   );
 
@@ -287,6 +292,53 @@ function HiddenOverlay({ big }: { big?: boolean }) {
           <div className="mt-1 text-[13px] text-fg-2">Answer from your mental model. Retrieval is what makes it stick.</div>
         </div>
       )}
+    </div>
+  );
+}
+
+const SHORTCUTS: [string[], string][] = [
+  [["⌘", "P"], "Go to file — type `name:42` to jump to a line"],
+  [["⌘", "⇧", "F"], "Search the whole codebase"],
+  [["F12"], "Go to definition (also ⌘-click) — works into the stdlib and libraries"],
+  [["⇧", "F12"], "Find every reference"],
+  [["⌘", "⇧", "O"], "Jump to a function or class in this file"],
+  [["⌘", "J"], "Toggle the terminal / tests panel"],
+  [["⌘", "B"], "Toggle the sidebar"],
+  [["⌘", "S"], "Save (files also autosave)"],
+  [["⌘", "F"], "Find in file"],
+];
+
+const TIPS = [
+  "Click any `file.py:42` in a traceback or test failure to jump straight there.",
+  "Select code, then ask the mentor about it — it sees your selection, open file and your diff.",
+  "`python -i -c 'from pkg.module import thing'` drops you into a REPL with the code loaded.",
+  "`pytest -x -k name -vv` runs just the tests you care about and stops at the first failure.",
+  "`breakpoint()` in the code + `pytest -s` gives you a live debugger (`n`, `s`, `p expr`, `c`).",
+  "`git diff` shows everything you've changed; the Changes view shows it per task.",
+];
+
+function HelpSheet({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 backdrop-blur-sm" onMouseDown={onClose}>
+      <div className="w-[640px] max-w-[92vw] rounded-2xl border border-line-strong bg-ink-1 p-6 shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="font-serif text-[26px] text-fg-0">Moving fast in here</div>
+        <div className="mt-4 grid gap-x-6 gap-y-2 sm:grid-cols-[auto_1fr]">
+          {SHORTCUTS.map(([keys, what]) => (
+            <div key={what} className="contents">
+              <div className="flex items-center gap-1">{keys.map((k) => <Kbd key={k}>{k}</Kbd>)}</div>
+              <Markdown className="text-[13px]">{what}</Markdown>
+            </div>
+          ))}
+        </div>
+        <div className="mt-5 border-t border-line pt-4">
+          <div className="text-[12px] font-semibold tracking-[0.08em] text-fg-2 uppercase">Tips</div>
+          <ul className="mt-2 space-y-1.5">
+            {TIPS.map((t) => (
+              <li key={t} className="flex gap-2"><span className="text-teal">›</span><Markdown className="text-[13px]">{t}</Markdown></li>
+            ))}
+          </ul>
+        </div>
+      </div>
     </div>
   );
 }

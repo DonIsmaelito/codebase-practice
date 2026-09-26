@@ -1,8 +1,10 @@
 """HTTP + WebSocket API, and the static frontend.
 
-Local-only by design. Because this server can run a shell, three guards keep
-other websites out: Host must be localhost (DNS-rebinding), mutating requests
-need a custom header (CSRF), and the terminal WebSocket checks Origin.
+Because this server can run a shell, other websites are kept out: Host must be
+localhost or the configured public host (DNS-rebinding), mutating requests
+need a custom header (CSRF), and the terminal WebSocket checks Origin. When
+hosted, every API call also needs a valid InsForge session for an
+allow-listed account (see auth.py).
 """
 
 from __future__ import annotations
@@ -17,9 +19,8 @@ from typing import Any
 from fastapi import Body, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from . import config, curriculum, db, llm
+from . import auth, config, curriculum, db, llm, persist, sandbox
 from .generation import features
 from .generation.manager import manager
 from .learning import engagements as E
@@ -36,20 +37,57 @@ async def lifespan(app: FastAPI):
     config.ensure_dirs()
     db.conn()
     manager.start()
+    flusher = asyncio.create_task(persist.flush_loop(), name="workspace-flush")
+    if sandbox.JAIL:
+        log.warning("sandbox self-check: %s", await sandbox.self_check())
     yield
+    flusher.cancel()
     await manager.stop()
+    await asyncio.to_thread(persist.flush_dirty)  # last chance before the container goes away
 
 
 app = FastAPI(title="Cold Start", lifespan=lifespan)
-app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost"])
+
+ALLOWED_HOSTS = {"127.0.0.1", "localhost", *(h.lower() for h in config.PUBLIC_HOSTS)}
+OPEN_PATHS = {"/api/health", "/api/public-config"}
+
+
+def _host_ok(host_header: str | None) -> bool:
+    host = (host_header or "").strip().lower()
+    return not host.startswith("[") and host.rsplit(":", 1)[0] in ALLOWED_HOSTS
 
 
 @app.middleware("http")
-async def csrf_guard(request: Request, call_next):
-    if request.url.path.startswith("/api/") and request.method not in ("GET", "HEAD", "OPTIONS"):
+async def guards(request: Request, call_next):
+    path = request.url.path
+    if path == "/api/health":
+        return await call_next(request)  # platform health checks may use any Host
+    if not _host_ok(request.headers.get("host")):
+        return JSONResponse({"detail": "invalid host"}, status_code=400)
+    if path.startswith("/api/") and request.method not in ("GET", "HEAD", "OPTIONS"):
         if request.headers.get("x-coldstart") != "1":
             return JSONResponse({"detail": "missing X-Coldstart header"}, status_code=403)
+    if auth.required() and path.startswith("/api/") and path not in OPEN_PATHS:
+        try:
+            request.state.user = await auth.verify(auth.bearer(request.headers.get("authorization")))
+        except auth.AuthError as err:
+            return JSONResponse({"detail": str(err)}, status_code=err.status)
     return await call_next(request)
+
+
+@app.get("/api/health", include_in_schema=False)
+async def health() -> dict[str, Any]:
+    return {"ok": True}
+
+
+@app.get("/api/public-config")
+async def public_config() -> dict[str, Any]:
+    """What the browser needs before it can talk to us (all public values)."""
+    return {
+        "auth": auth.required(),
+        "insforgeUrl": config.INSFORGE_URL if auth.required() else None,
+        "anonKey": config.INSFORGE_ANON_KEY if auth.required() else None,
+    }
 
 
 @app.exception_handler(E.EngagementError)
@@ -426,19 +464,29 @@ async def ws_tests(eid: str, body: dict = Body(default={})) -> dict[str, Any]:
 async def ws_terminal(websocket: WebSocket, eid: str) -> None:
     origin = websocket.headers.get("origin", "")
     allowed = {f"http://{h}:{p}" for h in ("127.0.0.1", "localhost") for p in (config.PORT, 5173)}
-    if origin not in allowed:
+    allowed |= {f"https://{h}" for h in config.PUBLIC_HOSTS}
+    if origin not in allowed or not _host_ok(websocket.headers.get("host")):
         await websocket.close(code=4403)
         return
+    await websocket.accept()
+    if auth.required():
+        # Browsers can't set headers on WebSockets: the first message carries the token.
+        try:
+            hello = json.loads(await asyncio.wait_for(websocket.receive_text(), timeout=15))
+            await auth.verify(hello.get("token") if hello.get("t") == "auth" else None)
+        except (auth.AuthError, asyncio.TimeoutError, json.JSONDecodeError, WebSocketDisconnect):
+            await websocket.close(code=4401)
+            return
     ws = Workspace(eid)
     if not ws.exists():
         await websocket.close(code=4404)
         return
-    await websocket.accept()
     cols = int(websocket.query_params.get("cols", 100))
     rows = int(websocket.query_params.get("rows", 30))
     session = TerminalSession(
         ws.root, ws.repo, cols=cols, rows=rows,
-        on_command=lambda cmd: E.log_event(eid, _active_task_id(eid), "terminal", {"command": cmd[:300]}),
+        on_command=lambda cmd: (E.log_event(eid, _active_task_id(eid), "terminal", {"command": cmd[:300]}),
+                                persist.mark_dirty(eid)),
     )
 
     async def send(text: str) -> None:
@@ -461,6 +509,7 @@ async def ws_terminal(websocket: WebSocket, eid: str) -> None:
     finally:
         session.close()
         pump.cancel()
+        persist.mark_dirty(eid)
 
 
 # --- learning views ------------------------------------------------------------------------------

@@ -1,9 +1,15 @@
 """Run untrusted (AI-generated) code with guard rails.
 
-On macOS we wrap every process in `sandbox-exec` with a profile that denies
-outbound network (except localhost) and denies file writes outside the
-directories we explicitly allow. Elsewhere we fall back to a plain subprocess
-with a timeout — still isolated in a scratch copy, just not jailed.
+macOS (local): every process is wrapped in `sandbox-exec` with a profile that
+denies outbound network (except localhost) and file writes outside the
+directories we explicitly allow.
+
+Linux as root (the hosted container): every process drops to an unprivileged
+`runner` user inside a fresh, empty network namespace, with resource limits.
+It can't reach the network, can't read the server's environment (API keys,
+database URL), and only owns the directories handed over to it.
+
+Anywhere else we fall back to a plain subprocess with a timeout.
 """
 
 from __future__ import annotations
@@ -26,6 +32,78 @@ from . import config
 
 SANDBOX_EXEC = shutil.which("sandbox-exec") if sys.platform == "darwin" else None
 MAX_OUTPUT = 24_000
+
+JAIL_USER = os.environ.get("COLDSTART_JAIL_USER", "runner")
+
+
+def _jail_ids() -> tuple[int, int, str] | None:
+    if sys.platform != "linux" or os.geteuid() != 0:
+        return None
+    try:
+        import pwd
+
+        pw = pwd.getpwnam(JAIL_USER)
+    except (ImportError, KeyError):
+        return None
+    return pw.pw_uid, pw.pw_gid, pw.pw_dir
+
+
+JAIL = _jail_ids()
+
+
+@functools.lru_cache(maxsize=1)
+def net_isolation() -> bool:
+    """Can we give children their own empty network namespace? (root on Linux)"""
+    if not JAIL:
+        return False
+    import subprocess
+
+    probe = subprocess.run([sys.executable, "-c", "import os; os.unshare(os.CLONE_NEWNET)"],
+                           capture_output=True)
+    return probe.returncode == 0
+
+
+def _jail_preexec(isolate_net: bool):
+    uid, gid, _ = JAIL  # type: ignore[misc]
+    unshare = isolate_net and net_isolation()
+
+    def preexec() -> None:  # runs in the child between fork and exec
+        import resource
+
+        if unshare:
+            os.unshare(os.CLONE_NEWNET)
+        resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+        resource.setrlimit(resource.RLIMIT_NPROC, (512, 512))
+        resource.setrlimit(resource.RLIMIT_FSIZE, (512 * 2**20, 512 * 2**20))
+        resource.setrlimit(resource.RLIMIT_NOFILE, (2048, 2048))
+        os.setgroups([])
+        os.setgid(gid)
+        os.setuid(uid)
+
+    return preexec
+
+
+def spawn_kwargs(isolate_net: bool = True) -> dict[str, Any]:
+    """Extra Popen/create_subprocess_exec kwargs that jail the child (Linux+root only)."""
+    return {"preexec_fn": _jail_preexec(isolate_net)} if JAIL else {}
+
+
+def hand_over(*paths: Path) -> None:
+    """Give the jail user ownership of these trees so jailed children can write them."""
+    if not JAIL:
+        return
+    uid, gid, _ = JAIL
+    for root in paths:
+        root = Path(root)
+        if not root.exists():
+            continue
+        os.chown(root, uid, gid)
+        for dirpath, dirnames, filenames in os.walk(root):
+            for name in (*dirnames, *filenames):
+                try:
+                    os.chown(os.path.join(dirpath, name), uid, gid, follow_symlinks=False)
+                except FileNotFoundError:
+                    pass
 
 
 def sandbox_profile(write_dirs: list[Path]) -> str:
@@ -50,7 +128,7 @@ def runtime_env(extra: dict[str, str] | None = None) -> dict[str, str]:
     venv_bin = str(config.RUNTIME_VENV / "bin")
     env = {
         "PATH": f"{venv_bin}:/usr/bin:/bin:/usr/sbin:/sbin",
-        "HOME": os.environ.get("HOME", "/tmp"),
+        "HOME": JAIL[2] if JAIL else os.environ.get("HOME", "/tmp"),
         "LANG": "en_US.UTF-8",
         "LC_ALL": "en_US.UTF-8",
         "TZ": "UTC",
@@ -94,6 +172,7 @@ async def run(cmd: list[str], *, cwd: Path, write_dirs: list[Path] | None = None
               timeout: float = 60, env: dict[str, str] | None = None,
               stdin: str | None = None) -> ProcResult:
     argv, profile = wrap(cmd, write_dirs or [cwd])
+    hand_over(cwd, *(write_dirs or []))
     started = time.monotonic()
     proc = await asyncio.create_subprocess_exec(
         *argv,
@@ -103,6 +182,7 @@ async def run(cmd: list[str], *, cwd: Path, write_dirs: list[Path] | None = None
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         start_new_session=True,  # own process group so we can kill children on timeout
+        **spawn_kwargs(),
     )
     timed_out = False
     try:
@@ -297,3 +377,39 @@ async def run_python(code: str, cwd: Path, *, timeout: float = 20, filename: str
                          env={"PYTHONPATH": str(cwd)})
     finally:
         Path(path).unlink(missing_ok=True)
+
+
+SELF_CHECK = """
+import json, os, socket
+out = {"uid": os.getuid()}
+for label, pid in (("init_environ", 1), ("server_environ", os.getppid())):
+    try:
+        open(f"/proc/{pid}/environ", "rb").read()
+        out[label] = "READABLE"
+    except OSError:
+        out[label] = "blocked"
+try:
+    socket.create_connection(("1.1.1.1", 443), timeout=3).close()
+    out["network"] = "OPEN"
+except OSError:
+    out["network"] = "blocked"
+print(json.dumps(out))
+"""
+
+
+async def self_check() -> dict[str, Any]:
+    """Prove the jail from the inside: can a jailed child read secrets or reach the internet?"""
+    import json
+
+    tmp = config.SCRATCH_DIR / f"selfcheck-{uuid.uuid4().hex[:6]}"
+    tmp.mkdir(parents=True, exist_ok=True)
+    try:
+        res = await run_python(SELF_CHECK, tmp, timeout=20, filename="check.py")
+        report = json.loads(res.stdout.strip().splitlines()[-1]) if res.stdout.strip() else {"error": res.stderr[-300:]}
+    except Exception as err:  # noqa: BLE001
+        report = {"error": str(err)}
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    report["jail"] = bool(JAIL)
+    report["net_isolation"] = net_isolation()
+    return report

@@ -69,9 +69,22 @@ class TerminalSession:
             "PYTHONDONTWRITEBYTECODE": "1",
         })
         argv, self._profile = sandbox.wrap(["/bin/zsh", "-i"], [workspace_root])
+        sandbox.hand_over(workspace_root)
+        jail = sandbox.spawn_kwargs().get("preexec_fn")
+
+        def preexec() -> None:
+            # We're a fresh session leader with the PTY slave on fd 0: make it our
+            # controlling terminal so job control (Ctrl-C, Ctrl-Z, fg) works on Linux.
+            try:
+                fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+            except OSError:
+                pass
+            if jail:
+                jail()
+
         self.proc = subprocess.Popen(
             argv, stdin=slave, stdout=slave, stderr=slave, cwd=str(cwd), env=env,
-            start_new_session=True, close_fds=True,
+            start_new_session=True, close_fds=True, preexec_fn=preexec,
         )
         os.close(slave)
         os.set_blocking(self.master, False)

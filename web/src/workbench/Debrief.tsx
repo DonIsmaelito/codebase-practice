@@ -1,6 +1,6 @@
 import clsx from "clsx";
 import { motion } from "motion/react";
-import { ArrowRight, BookMarked, Check, Footprints, Hammer, Link2, Lightbulb, MapPin, Sparkles, Telescope, X } from "lucide-react";
+import { ArrowRight, BookMarked, Check, Clapperboard, Footprints, Hammer, Link2, Lightbulb, MapPin, MessagesSquare, Sparkles, Telescope, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { Button, Chip, Markdown, SectionLabel, Spinner } from "../components/ui";
@@ -134,7 +134,12 @@ export default function Debrief({ data, kind, onClose }: { data: EngagementPaylo
         {r?.review && sol && (
           <div className="mt-10 space-y-10">
             {kind === "incident" ? (
-              <IncidentSections r={r} onOpen={(p, l) => { onClose(); void openFile(p, false, l, 1, "flash"); }} />
+              <IncidentSections
+                r={r}
+                mentorName={data.settings.mentor_name || "Sam"}
+                onReplay={() => useWB.getState().set({ replayTask: task.id })}
+                onOpen={(p, l) => { onClose(); void openFile(p, false, l, 1, "flash"); }}
+              />
             ) : (
               <FeatureSections r={r} onOpen={(p, l) => { onClose(); void openFile(p, false, l, 1, "flash"); }} />
             )}
@@ -228,7 +233,7 @@ function DiffBlock({ title, diff, tone }: { title: string; diff: string; tone: "
   );
 }
 
-function IncidentSections({ r, onOpen }: { r: TaskResult; onOpen: (path: string, line?: number) => void }) {
+function IncidentSections({ r, mentorName, onReplay, onOpen }: { r: TaskResult; mentorName: string; onReplay: () => void; onOpen: (path: string, line?: number) => void }) {
   const sol = r.solution!;
   const review = r.review!;
   return (
@@ -271,6 +276,20 @@ function IncidentSections({ r, onOpen }: { r: TaskResult; onOpen: (path: string,
       </Section>
 
       <Section icon={<Footprints className="size-4" />} title="Your path vs. an expert's">
+        <button
+          onClick={onReplay}
+          className="group mb-4 flex w-full items-center gap-4 rounded-2xl border border-green/25 bg-gradient-to-r from-green-dim/50 to-ink-1 p-4 text-left transition hover:border-green/50"
+        >
+          <span className="grid size-11 shrink-0 place-items-center rounded-full bg-green text-ink-0 transition group-hover:scale-105">
+            <Clapperboard className="size-5" />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-[15px] font-medium text-fg-0">Watch {mentorName} work it</span>
+            <span className="block text-[12.5px] text-fg-2">
+              A replay in the editor: what an expert reads first, what they skip, the commands they run (for real), and when you got to the same place.
+            </span>
+          </span>
+        </button>
         <div className="grid gap-4 lg:grid-cols-2">
           <div className="rounded-xl border border-line bg-ink-1 p-4">
             <div className="mb-2 text-[12px] font-medium text-blue">What you did</div>
@@ -293,6 +312,12 @@ function IncidentSections({ r, onOpen }: { r: TaskResult; onOpen: (path: string,
         </div>
         <Markdown className="mt-4">{review.process_review}</Markdown>
       </Section>
+
+      {review.communication_review && (
+        <Section icon={<MessagesSquare className="size-4" />} title="Working with the team">
+          <Markdown>{review.communication_review}</Markdown>
+        </Section>
+      )}
     </>
   );
 }

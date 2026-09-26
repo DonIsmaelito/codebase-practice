@@ -17,6 +17,7 @@ import EditorArea from "./EditorArea";
 import Explorer from "./Explorer";
 import MissionPanel, { focusKind, Stepper } from "./MissionPanel";
 import QuickOpen from "./QuickOpen";
+import Replay from "./Replay";
 import SearchPanel from "./SearchPanel";
 import { ChangesPanel, OutlinePanel } from "./SidePanels";
 import { useWB } from "./store";
@@ -24,8 +25,10 @@ import { useWB } from "./store";
 export default function Workbench() {
   const { eid } = useParams();
   const navigate = useNavigate();
-  const { data, side, sideOpen, bottomOpen, quickOpen, codeHidden } = useWB(
-    useShallow((s) => ({ data: s.data, side: s.side, sideOpen: s.sideOpen, bottomOpen: s.bottomOpen, quickOpen: s.quickOpen, codeHidden: s.codeHidden })),
+  const { data, side, sideOpen, bottomOpen, quickOpen, codeHidden, replayTask } = useWB(
+    useShallow((s) => ({
+      data: s.data, side: s.side, sideOpen: s.sideOpen, bottomOpen: s.bottomOpen, quickOpen: s.quickOpen, codeHidden: s.codeHidden, replayTask: s.replayTask,
+    })),
   );
   const { load, set, flush, openFile, log, reset } = useWB.getState();
   const [error, setError] = useState<string | null>(null);
@@ -236,6 +239,15 @@ export default function Workbench() {
       {quickOpen && <QuickOpen />}
       <AnimatePresence>{briefing && !finished && <Intro key="intro" />}</AnimatePresence>
       {debrief && <Debrief data={data} kind={debrief} onClose={() => setDebrief(null)} />}
+      {replayTask && (
+        <Replay
+          taskId={replayTask}
+          mentorName={data.settings.mentor_name || "Sam"}
+          company={company.name}
+          report={data.case.incident?.report}
+          onClose={() => set({ replayTask: null })}
+        />
+      )}
       {help && <HelpSheet onClose={() => setHelp(false)} />}
     </div>
   );

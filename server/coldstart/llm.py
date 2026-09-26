@@ -115,7 +115,11 @@ def _body(model: str, messages: list[Message], *, max_tokens: int,
     # against max_tokens, and an effort level alone once let a model think until
     # the limit and return nothing.
     if isinstance(reasoning, int):
-        body["reasoning"] = {"max_tokens": reasoning}
+        # The thinking budget must leave room for the answer; below the provider's
+        # minimum (1024) just don't think.
+        budget = min(reasoning, max_tokens - 512)
+        if budget >= 1024:
+            body["reasoning"] = {"max_tokens": budget}
     elif reasoning == "off":
         body["reasoning"] = {"enabled": False}
     elif reasoning:

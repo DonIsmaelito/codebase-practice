@@ -134,7 +134,7 @@ async def _check_in(task_id: str, idle: float) -> None:
         msgs.append({"role": "assistant" if m["role"] == "nudge" else m["role"], "content": m["content"]})
     live = mentor._live_context(ws, task_id, t, {})
     msgs.append({"role": "user", "content": f"{live}\n\n{_instruction(st.get('count', 0), idle)}"})
-    c = await llm.complete(msgs, role="mentor", max_tokens=1200, reasoning=1500, case_id=case["id"])
+    c = await llm.complete(msgs, role="mentor", max_tokens=2500, reasoning=1024, case_id=case["id"])
     text = c.text.strip()
     if not text or text.upper().startswith("SKIP"):
         if task_id in _state:

@@ -34,11 +34,14 @@ def mock_openrouter(handler):
 
 
 def test_reasoning_budget_forms():
-    body = lambda r: llm._body("m", [], max_tokens=10, temperature=None, reasoning=r, stream=True, json_mode=False)
+    body = lambda r: llm._body("m", [], max_tokens=10000, temperature=None, reasoning=r, stream=True, json_mode=False)
     assert body(4000)["reasoning"] == {"max_tokens": 4000}
     assert body("low")["reasoning"] == {"effort": "low"}
     assert body("off")["reasoning"] == {"enabled": False}
     assert "reasoning" not in body(None)
+    big = lambda r, n: llm._body("m", [], max_tokens=n, temperature=None, reasoning=r, stream=True, json_mode=False)
+    assert big(1500, 1200).get("reasoning") is None                  # no room left to answer: don't think
+    assert big(8000, 6000)["reasoning"] == {"max_tokens": 5488}      # leave room for the answer
 
 
 async def test_all_thinking_no_answer_retries_without_reasoning():
@@ -57,10 +60,10 @@ async def test_all_thinking_no_answer_retries_without_reasoning():
         return httpx.Response(200, content=content, headers={"content-type": "text/event-stream"})
 
     mock_openrouter(handler)
-    c = await llm.complete([{"role": "user", "content": "q"}], role="designer", max_tokens=1000, reasoning=800)
+    c = await llm.complete([{"role": "user", "content": "q"}], role="designer", max_tokens=4000, reasoning=2000)
     assert c.text == "the answer"
-    assert seen[0]["reasoning"] == {"max_tokens": 800}
-    assert seen[1]["reasoning"] == {"enabled": False} and seen[1]["max_tokens"] == 1500
+    assert seen[0]["reasoning"] == {"max_tokens": 2000}
+    assert seen[1]["reasoning"] == {"enabled": False} and seen[1]["max_tokens"] == 6000
     # both calls are on the spend ledger, including the wasted one
     assert db.one("SELECT COUNT(*) AS n, SUM(cost_usd) AS s FROM llm_calls")["n"] == 2
 

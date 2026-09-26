@@ -48,6 +48,20 @@ case "$cmd" in
     ;;
   deploy)
     [[ -f "$ROOT/.env.deploy" ]] || { echo "Missing .env.deploy (the hosted app's env vars) — see README."; exit 1; }
+    # A deploy restarts the machine, which cancels a client that's mid-generation (~$1 of AI lost).
+    host="$(grep '^COLDSTART_PUBLIC_HOSTS=' "$ROOT/.env.deploy" | cut -d= -f2 | cut -d, -f1)"
+    if [[ -n "$host" && "${1:-}" != "--force" ]]; then
+      busy="$(curl -s --max-time 30 "https://$host/api/state" | python3 -c 'import json, sys
+try:
+    print(sum(p.get("status") == "generating" for p in json.load(sys.stdin).get("pipeline", [])))
+except Exception:
+    print(0)' 2>/dev/null || echo 0)"
+      if [[ "$busy" != "0" ]]; then
+        echo "A client is being generated on the hosted app right now; deploying would cancel it."
+        echo "Try again in a few minutes, or run: ./coldstart deploy --force"
+        exit 1
+      fi
+    fi
     cd "$ROOT" && exec npx -y @insforge/cli compute deploy . --name coldstart --port 8080 \
       --cpu shared-2x --memory 2048 --region sjc --env-file .env.deploy
     ;;

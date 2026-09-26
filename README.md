@@ -68,35 +68,37 @@ Click any `file.py:42` in a traceback to jump there.
 
 ## Hosted on InsForge
 
-Cold Start also runs in the cloud: **https://coldstart-7eef22c6-ccac-493d-badd-cb101db91960.fly.dev**
+The same app also runs in the cloud on InsForge (the URL is in the InsForge dashboard,
+or `npx -y @insforge/cli compute list`). There's no login — progress is simply your
+completed work — so two guards stand in for one:
+
+- a **daily AI budget** (Settings, default $15 per rolling 24h) caps what anyone, or a
+  runaway bug, can spend on your OpenRouter key;
+- generated code, tests and the terminal run as an unprivileged `runner` user in an
+  empty network namespace: no network, and the server's secrets are unreadable. The
+  server checks this from inside the jail at boot; Settings → Sandbox shows the result.
 
 | Piece | Where it lives |
 |---|---|
-| The app (API, IDE, terminal, generation) | InsForge Compute — one Docker container (`Dockerfile`) on Fly.io, `sjc`, 2 vCPU / 2 GB, always on |
+| The app (API, IDE, terminal, generation) | InsForge Compute — one Docker container (`Dockerfile`) on Fly.io, `sjc`, 2 vCPU / 2 GB. It sleeps when nobody's using it (first page load after a break takes a few seconds) and keeps itself awake while a client is being generated |
 | Progress, engagements, spend ledger | InsForge Postgres (`migrations/`), server-only: RLS on, REST access revoked |
 | Case bundles + your workspaces | InsForge Storage, private `coldstart` bucket (the container disk is wiped on restart, so everything durable is synced there) |
-| Sign-in | InsForge Auth — Google, GitHub, or an emailed code; only `COLDSTART_ALLOWED_EMAILS` get in |
-
-Generated code, tests and the terminal run as an unprivileged `runner` user in an empty
-network namespace, so they can't reach the network or read the server's secrets. The
-server checks this from inside the jail at boot; Settings → Sandbox shows the result.
 
 Operating it (from this directory, after `npx -y @insforge/cli login`):
 
 ```bash
-./coldstart deploy                                      # rebuild + redeploy (reads .env.deploy)
-npx -y @insforge/cli compute list                       # status / service id
+./coldstart deploy                                      # rebuild + redeploy (reads .env.deploy; waits out in-flight generations)
+npx -y @insforge/cli compute list                       # status, URL, service id
 npx -y @insforge/cli compute stop  <service-id>         # pause it (stops the bill for the machine)
 npx -y @insforge/cli compute start <service-id>
-npx -y @insforge/cli compute update <service-id> --env-set COLDSTART_ALLOWED_EMAILS=a@x.com,b@y.com
 npx -y @insforge/cli db migrations up --all             # after adding a migration
 ```
 
 `.env.deploy` (git-ignored) holds the hosted env vars: `OPENROUTER_API_KEY`,
 `DATABASE_URL` (from `npx -y @insforge/cli db connection-string`), `INSFORGE_URL`,
-`INSFORGE_API_KEY`, `INSFORGE_ANON_KEY`, `COLDSTART_ALLOWED_EMAILS`,
-`COLDSTART_PUBLIC_HOSTS`, `COLDSTART_STORAGE_BUCKET`. To copy local progress and
-clients up: set those env vars and run `server/.venv/bin/python -m coldstart.cli cloud-push`.
+`INSFORGE_API_KEY`, `COLDSTART_PUBLIC_HOSTS`, `COLDSTART_STORAGE_BUCKET`. To copy local
+progress and clients up: set those env vars and run
+`server/.venv/bin/python -m coldstart.cli cloud-push`.
 
 ## How it works
 

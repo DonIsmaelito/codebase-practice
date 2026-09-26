@@ -50,8 +50,17 @@ export default function SettingsPage() {
         <SectionLabel>Budget</SectionLabel>
         <div className="mt-3 flex flex-wrap items-baseline gap-x-8 gap-y-2">
           <div>
-            <div className="text-[30px] font-semibold text-fg-0">${data.budget.remaining?.toFixed(2) ?? "—"}</div>
-            <div className="text-[12px] text-fg-2">left on your OpenRouter key{data.budget.limit ? ` (of $${data.budget.limit})` : ""}</div>
+            <div className={clsx("text-[30px] font-semibold", (data.budget.remaining ?? 99) < 1 ? "text-red" : "text-fg-0")}>
+              ${data.budget.remaining?.toFixed(2) ?? "—"}
+            </div>
+            <div className="text-[12px] text-fg-2">you can spend right now</div>
+          </div>
+          <div className="text-[12.5px] leading-relaxed text-fg-2">
+            {data.budget.account_remaining != null && <div>OpenRouter account balance: ${data.budget.account_remaining.toFixed(2)}</div>}
+            {data.budget.key_remaining != null && <div>This key's limit: ${data.budget.key_remaining.toFixed(2)} left of ${data.budget.limit}</div>}
+            {(data.budget.account_remaining ?? 99) < 1 && (
+              <a className="text-blue underline" href="https://openrouter.ai/settings/credits" target="_blank" rel="noreferrer">Add credits on OpenRouter</a>
+            )}
           </div>
           <div>
             <div className="text-[30px] font-semibold text-fg-0">${data.spend.total_usd.toFixed(2)}</div>

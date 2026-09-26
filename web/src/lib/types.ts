@@ -59,7 +59,9 @@ export interface PipelineItem {
 export interface Budget {
   ok: boolean;
   limit?: number | null;
-  remaining?: number | null;
+  remaining?: number | null; // what can actually be spent: min(account balance, key limit left)
+  key_remaining?: number | null;
+  account_remaining?: number | null;
   usage?: number;
   error?: string;
 }

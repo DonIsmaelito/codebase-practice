@@ -57,7 +57,7 @@ export default function TopNav() {
                 "rounded-full border px-2.5 py-0.5 font-mono text-[11.5px]",
                 remaining < 5 ? "border-red/30 text-red" : "border-line text-fg-2",
               )}
-              title="Remaining OpenRouter credit"
+              title="OpenRouter credit you can actually spend (your account balance, or this key's limit if lower)"
             >
               ${remaining.toFixed(2)}
             </span>

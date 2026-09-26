@@ -451,11 +451,9 @@ def end(engagement_id: str, abandoned: bool = False) -> dict[str, Any]:
     case = load_case(e["case_id"])
     worked = any(t["status"] in ("passed", "failed", "revealed") for t in tasks.values())
     if worked:
+        # Planned-but-skipped tasks give no signal either way; flavor concepts count as seen.
         for cid in case["concepts"]["flavor"]:
             scheduler.record_exposure(cid, case["id"])
-        for kind in ("incident", "feature"):
-            if tasks[kind]["status"] == "skipped" and kind in e["plan"]:
-                pass  # planned but not attempted: no signal either way
     db.run("UPDATE engagements SET status = ?, ended_at = ?, phase = 'wrapup' WHERE id = ?",
            "abandoned" if abandoned and not worked else "done", time.time(), engagement_id)
     log_event(engagement_id, None, "engagement_end", {"abandoned": abandoned})

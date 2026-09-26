@@ -339,11 +339,16 @@ class Pipeline:
             res = await sandbox.run_python(code, tmp, timeout=30, filename="repro.py")
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
-        # Real tracebacks come from a server, not our scratch dir.
+        # Real tracebacks come from a server, not our scratch dir or this machine's venv.
         deploy = f"/srv/{self._repo_name or 'app'}"
-        for prefix in {str(tmp), str(tmp.resolve()), str(tmp).replace("/private/", "/", 1)}:
-            res.stdout = res.stdout.replace(prefix, deploy)
-            res.stderr = res.stderr.replace(prefix, deploy)
+        venv, base = sandbox.runtime_prefixes()
+        mapping = {p: deploy for p in (str(tmp), str(tmp.resolve()), str(tmp).replace("/private/", "/", 1))}
+        mapping[venv] = f"{deploy}/.venv"
+        mapping[str(Path(venv).resolve())] = f"{deploy}/.venv"
+        mapping[base] = "/usr/local"
+        mapping[str(Path(base).resolve())] = "/usr/local"
+        res.stdout = sandbox.scrub_paths(res.stdout, mapping)
+        res.stderr = sandbox.scrub_paths(res.stderr, mapping)
         return res
 
     async def write_report(self, design: dict[str, Any], incident: dict[str, Any]) -> dict[str, Any]:

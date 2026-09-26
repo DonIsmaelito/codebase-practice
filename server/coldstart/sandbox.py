@@ -9,6 +9,7 @@ with a timeout — still isolated in a scratch copy, just not jailed.
 from __future__ import annotations
 
 import asyncio
+import functools
 import os
 import shutil
 import signal
@@ -251,6 +252,24 @@ async def run_pytest(repo_dir: Path, targets: list[str] | None = None, *,
     if not cases and res.returncode not in (0,):
         rep.errors = max(rep.errors, 1)
     return rep
+
+
+@functools.lru_cache(maxsize=1)
+def runtime_prefixes() -> tuple[str, str]:
+    """(venv prefix, base interpreter prefix) of the runtime Python, for path scrubbing."""
+    import subprocess
+
+    out = subprocess.run([str(config.RUNTIME_PYTHON), "-c", "import sys; print(sys.prefix); print(sys.base_prefix)"],
+                         capture_output=True, text=True, check=True).stdout.split()
+    return out[0], out[1]
+
+
+def scrub_paths(text: str, replacements: dict[str, str]) -> str:
+    """Replace machine-specific paths (longest first) so output reads like it came from a server."""
+    for old in sorted(replacements, key=len, reverse=True):
+        if old:
+            text = text.replace(old, replacements[old])
+    return text
 
 
 def scratch_copy(src: Path, label: str = "run") -> Path:

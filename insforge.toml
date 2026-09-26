@@ -1,5 +1,5 @@
 [auth]
-allowed_redirect_urls = []
+allowed_redirect_urls = ["https://coldstart-7eef22c6-ccac-493d-badd-cb101db91960.fly.dev", "https://coldstart-7eef22c6-ccac-493d-badd-cb101db91960.fly.dev/"]
 require_email_verification = true
 verify_email_method = "code"
 reset_password_method = "code"

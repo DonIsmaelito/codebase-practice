@@ -165,7 +165,7 @@ Reply with ONLY JSON:
   "process_review": "markdown, 3-6 sentences: compare their timeline with the expert path. Where did the time go? What evidence in the report did they use or miss? Be specific about moments in the timeline.",
   "strengths": ["1-3 specific things they did well"],
   "next_time": "ONE concrete, actionable technique to try in the next engagement",
-  "lesson": "one sentence, second person, that captures the transferable lesson (for their journal)"
+  "lesson": "one sentence, second person: the transferable TECHNICAL lesson about the concept at the heart of this bug, phrased so it applies in any codebase (process advice belongs in next_time, not here)"
 }}"""
     else:
         sol = E.feature_solution(case)
@@ -199,7 +199,7 @@ Reply with ONLY JSON:
   "process_review": "2-4 sentences on how they approached it vs the expert path",
   "strengths": ["1-3 specific things done well"],
   "next_time": "ONE concrete, actionable habit for next time",
-  "lesson": "one sentence, second person, the transferable lesson (for their journal)"
+  "lesson": "one sentence, second person: the transferable TECHNICAL lesson about the concept this feature exercised (process advice belongs in next_time)"
 }}
 Line numbers in comments refer to the NEW file (the + side of their diff). 3-8 comments; include praise where deserved."""
     review, _ = await llm.complete_json(

@@ -24,7 +24,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .. import config, db, llm, sandbox
+from .. import config, db, llm, persist, sandbox
 from . import files as F
 from . import prompts as P
 from . import safety
@@ -724,6 +724,14 @@ async def generate(case_id: str, spec: dict[str, Any]) -> dict[str, Any]:
         raise
     finally:
         pipe.close()
+    # Hosted: the bundle must reach durable storage before the case shows up as ready.
+    for attempt in range(3):
+        try:
+            await asyncio.to_thread(persist.upload_case, case_id)
+            break
+        except Exception as err:  # noqa: BLE001
+            log.warning("upload of case %s failed (attempt %d): %s", case_id, attempt + 1, err)
+            await asyncio.sleep(5 * (attempt + 1))
     db.run("UPDATE cases SET status = 'ready', card = ?, finished_at = ?, stage = NULL WHERE id = ?",
            db.dumps(case["card"]), time.time(), case_id)
     return case
@@ -758,6 +766,7 @@ async def generate_feature(case_id: str) -> dict[str, Any]:
         case["feature"] = pipe._feature_section(feature)
         case["card"]["minutes"]["feature"] = case["feature"]["par_minutes"]
         (d / "case.json").write_text(json.dumps(case, indent=2))
+        await asyncio.to_thread(persist.upload_case, case_id)
         pipe.note("feature ready")
         return case["feature"]
     except Exception as err:

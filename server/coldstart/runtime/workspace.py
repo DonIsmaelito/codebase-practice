@@ -15,7 +15,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from .. import config
+from .. import config, persist, sandbox
 from ..generation import files as F
 
 HIDDEN_NAMES = {".git", "__pycache__", ".pytest_cache", ".mypy_cache", ".DS_Store", ".ruff_cache"}
@@ -41,19 +41,28 @@ class Workspace:
         ws.root.mkdir(parents=True)
         F.copy_repo(case_dir / "repo", ws.repo)
         (ws.root / "snapshots").mkdir()
+        sandbox.hand_over(ws.root)
         ws.git("init", "-q", "-b", "main")
         ws.git("add", "-A")
         ws.commit("Snapshot of main for contractor access", author=author)
         return ws
 
     def exists(self) -> bool:
-        return self.repo.exists()
+        """True if the workspace is available, restoring it from storage if needed."""
+        return self.repo.exists() or persist.ensure_workspace(self.id)
+
+    def touched(self, *paths: Path) -> None:
+        """After a server-side change: hand files to the jail user and schedule an upload."""
+        sandbox.hand_over(*paths)
+        persist.mark_dirty(self.id)
 
     # --- git -----------------------------------------------------------------------
 
     def git(self, *args: str, check: bool = True) -> str:
-        env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
-        res = subprocess.run(["git", "-C", str(self.repo), *args], capture_output=True, text=True, env=env)
+        # Runs as the jail user in the hosted container, with a scrubbed environment.
+        env = sandbox.runtime_env({"GIT_TERMINAL_PROMPT": "0"})
+        res = subprocess.run(["git", "-C", str(self.repo), *args], capture_output=True, text=True, env=env,
+                             **sandbox.spawn_kwargs())
         if check and res.returncode != 0:
             raise WorkspaceError(f"git {' '.join(args)} failed: {res.stderr.strip()}")
         return res.stdout
@@ -63,6 +72,7 @@ class Workspace:
         self.git("add", "-A")
         self.git("-c", f"user.name={name}", "-c", f"user.email={email}",
                  "commit", "-q", "--allow-empty", "-m", message)
+        persist.mark_dirty(self.id)
         return self.head()
 
     def head(self) -> str:
@@ -104,18 +114,22 @@ class Workspace:
 
     def write(self, rel: str, content: str) -> None:
         path = self.resolve(rel)
+        new_dirs = [p for p in path.parents if not p.exists() and self.repo in p.parents]
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content)
+        self.touched(path, *new_dirs)
 
     def create(self, rel: str, kind: str = "file") -> None:
         path = self.resolve(rel)
         if path.exists():
             raise WorkspaceError(f"already exists: {rel}")
+        new_dirs = [p for p in path.parents if not p.exists() and self.repo in p.parents]
         if kind == "dir":
             path.mkdir(parents=True)
         else:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("")
+        self.touched(path, *new_dirs)
 
     def delete(self, rel: str) -> None:
         path = self.resolve(rel)
@@ -125,6 +139,7 @@ class Workspace:
             shutil.rmtree(path)
         elif path.exists():
             path.unlink()
+        persist.mark_dirty(self.id)
 
     def rename(self, old: str, new: str) -> None:
         src, dst = self.resolve(old), self.resolve(new)
@@ -132,6 +147,7 @@ class Workspace:
             raise WorkspaceError(f"already exists: {new}")
         dst.parent.mkdir(parents=True, exist_ok=True)
         src.rename(dst)
+        self.touched(dst)
 
     def files(self) -> dict[str, str]:
         return F.read_repo(self.repo)
@@ -141,6 +157,7 @@ class Workspace:
     def snapshot(self, task_id: str) -> None:
         (self.root / "snapshots").mkdir(exist_ok=True)
         (self.root / "snapshots" / f"{task_id}.json").write_text(json.dumps(self.files()))
+        persist.mark_dirty(self.id)
 
     def snapshot_files(self, task_id: str) -> dict[str, str]:
         p = self.root / "snapshots" / f"{task_id}.json"
@@ -172,3 +189,6 @@ class Workspace:
 
     def dispose(self) -> None:
         shutil.rmtree(self.root, ignore_errors=True)
+
+    def persist_now(self) -> None:
+        persist.upload_workspace(self.id)

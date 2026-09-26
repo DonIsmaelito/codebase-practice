@@ -55,6 +55,50 @@ def cmd_spend(args: argparse.Namespace) -> None:
     print(json.dumps(asyncio.run(llm.key_status(force=True)), indent=2))
 
 
+IDENTITY_TABLES = {"events", "chat", "journal", "llm_calls", "drills"}
+PUSH_ORDER = ["cases", "engagements", "tasks", "events", "chat", "mastery", "journal",
+              "practice_days", "llm_calls", "kv", "drills"]
+
+
+def cmd_cloud_push(args: argparse.Namespace) -> None:
+    """Copy a local SQLite database + case library into the hosted (InsForge) backend."""
+    import sqlite3
+    from pathlib import Path
+
+    from . import persist
+
+    if not (config.CLOUD_DB and config.CLOUD_STORAGE):
+        sys.exit("Set DATABASE_URL, INSFORGE_URL and INSFORGE_API_KEY to point at the hosted backend.")
+    local = Path(args.data).resolve()
+    src = sqlite3.connect(local / "coldstart.db")
+    src.row_factory = sqlite3.Row
+    have = {r[0] for r in src.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    for table in PUSH_ORDER:
+        if table not in have:
+            continue  # older local databases predate some tables
+        rows = [dict(r) for r in src.execute(f"SELECT * FROM {table}")]
+        if not rows:
+            continue
+        cols = list(rows[0])
+        overriding = " OVERRIDING SYSTEM VALUE" if table in IDENTITY_TABLES else ""
+        sql = (f"INSERT INTO {table}({', '.join(cols)}){overriding} VALUES({', '.join('?' for _ in cols)}) "
+               "ON CONFLICT DO NOTHING")
+        added = sum(db.run(sql, *[r[c] for c in cols]).rowcount for r in rows)
+        if table in IDENTITY_TABLES:
+            db.run(f"SELECT setval(pg_get_serial_sequence('public.{table}', 'id'), "
+                   f"GREATEST((SELECT MAX(id) FROM {table}), 1))")
+        print(f"  {table:<14} {added} of {len(rows)} rows added")
+    for case in db.all_("SELECT id FROM cases WHERE status IN ('ready', 'taken')"):
+        folder = local / "library" / case["id"]
+        if (folder / "case.json").exists():
+            config.LIBRARY_DIR.mkdir(parents=True, exist_ok=True)
+            target = config.LIBRARY_DIR / case["id"]
+            if not target.exists():
+                shutil.copytree(folder, target, ignore=shutil.ignore_patterns("work"))
+            persist.upload_case(case["id"])
+            print(f"  uploaded case bundle {case['id']}")
+
+
 def cmd_doctor(args: argparse.Namespace) -> None:
     ok = True
 
@@ -92,6 +136,9 @@ def main() -> None:
     p.set_defaults(func=cmd_generate)
     sub.add_parser("spend", help="show LLM spend").set_defaults(func=cmd_spend)
     sub.add_parser("doctor", help="check the environment").set_defaults(func=cmd_doctor)
+    p = sub.add_parser("cloud-push", help="copy local progress + cases into the hosted backend")
+    p.add_argument("--data", default=str(config.ROOT / "data"), help="local data dir to copy from")
+    p.set_defaults(func=cmd_cloud_push)
     args = parser.parse_args()
     args.func(args)
 

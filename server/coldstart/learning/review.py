@@ -128,6 +128,7 @@ async def debrief(task_id: str, explanation: str) -> dict[str, Any]:
     e = E.get(t["engagement_id"])
     case = E.load_case(e["case_id"])
     ws = Workspace(e["id"])
+    ws.exists()  # restores from storage after a restart
     learner_diff = ws.diff(task_id) or "(no changes)"
     timeline = _timeline(task_id, t["started_at"])
     result = dict(t["result"] or {})
@@ -270,7 +271,7 @@ def _journal_entry(case: dict[str, Any], t: dict[str, Any], review: dict[str, An
     card = meta.get("concept_card") or {}
     recall = meta.get("recall") or {}
     concept_ids = [case["concepts"][kind]]
-    cur = db.run(
+    return db.insert_id(
         "INSERT INTO journal(created_at, case_id, engagement_id, task_id, concept_ids, title, lesson, snippet,"
         " recall_q, recall_a, recall_due, recall_interval) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
         time.time(), case["id"], t["engagement_id"], t["id"], db.dumps(concept_ids),
@@ -279,4 +280,3 @@ def _journal_entry(case: dict[str, Any], t: dict[str, Any], review: dict[str, An
         card.get("example"), recall.get("q"), recall.get("a"),
         time.time() + 86_400, 1.0,
     )
-    return cur.lastrowid

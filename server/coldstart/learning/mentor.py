@@ -95,6 +95,7 @@ async def chat(task_id: str, message: str, ctx: dict[str, Any]) -> AsyncIterator
     from . import scheduler
 
     ws = Workspace(e["id"])
+    ws.exists()  # restores from storage after a restart
     past = history(task_id)[-16:]
     messages: list[llm.Message] = [
         {"role": "system", "content": _system(case, t, settings.get("mentor_name", "Sam"), scheduler.learner()["level"])},

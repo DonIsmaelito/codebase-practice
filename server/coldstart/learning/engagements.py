@@ -16,7 +16,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from .. import config, db, sandbox
+from .. import config, db, persist, sandbox
 from ..generation import files as F
 from ..runtime.workspace import Workspace
 from . import scheduler
@@ -37,12 +37,13 @@ def _load_case_cached(case_id: str, mtime: float) -> dict[str, Any]:
 
 def load_case(case_id: str) -> dict[str, Any]:
     path = config.LIBRARY_DIR / case_id / "case.json"
-    if not path.exists():
+    if not path.exists() and not persist.ensure_case(case_id):
         raise EngagementError(f"case {case_id} has no case file")
     return _load_case_cached(case_id, path.stat().st_mtime)
 
 
 def case_dir(case_id: str) -> Path:
+    persist.ensure_case(case_id)
     return config.LIBRARY_DIR / case_id
 
 
@@ -222,6 +223,8 @@ def begin_task(engagement_id: str, kind: str) -> dict[str, Any]:
     if t["status"] not in ("pending", "skipped"):
         raise EngagementError(f"{kind} is already finished")
     ws = Workspace(engagement_id)
+    if not ws.exists():
+        raise EngagementError("this engagement's workspace is missing")
     case = load_case(e["case_id"])
     # Close out whatever was active before.
     for other in tasks.values():
@@ -323,6 +326,7 @@ def hints_seen(task_id: str) -> list[str]:
 
 async def run_visible_tests(engagement_id: str, targets: list[str] | None = None) -> dict[str, Any]:
     ws = Workspace(engagement_id)
+    ws.exists()
     tmp = sandbox.scratch_copy(ws.repo, "visible")
     try:
         rep = await sandbox.run_pytest(tmp, targets or [])
@@ -338,7 +342,9 @@ async def run_hidden(engagement_id: str, kind: str) -> sandbox.TestReport:
     d = case_dir(case["id"])
     hidden_rel = "tests/test_zz_hidden_incident.py" if kind == "incident" else "tests/test_zz_hidden_feature.py"
     hidden_src = d / case[kind]["hidden_tests_path"]
-    tmp = sandbox.scratch_copy(Workspace(engagement_id).repo, "grade")
+    ws = Workspace(engagement_id)
+    ws.exists()
+    tmp = sandbox.scratch_copy(ws.repo, "grade")
     try:
         (tmp / hidden_rel).write_text(hidden_src.read_text())
         return await sandbox.run_pytest(tmp, [])  # whole suite: hidden + visible (catches regressions)
@@ -456,5 +462,6 @@ def end(engagement_id: str, abandoned: bool = False) -> dict[str, Any]:
             scheduler.record_exposure(cid, case["id"])
     db.run("UPDATE engagements SET status = ?, ended_at = ?, phase = 'wrapup' WHERE id = ?",
            "abandoned" if abandoned and not worked else "done", time.time(), engagement_id)
+    persist.mark_dirty(engagement_id)
     log_event(engagement_id, None, "engagement_end", {"abandoned": abandoned})
     return get(engagement_id)

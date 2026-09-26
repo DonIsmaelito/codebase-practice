@@ -13,7 +13,7 @@ const verdictTone = { correct: "green", partial: "amber", incorrect: "red" } as 
 export default function ReconBrief({ data }: { data: EngagementPayload }) {
   const recon = data.case.recon;
   const task = data.tasks.recon;
-  const { openFile, set, beginTask, refresh } = useWB.getState();
+  const { openFile, set, beginTask, takeFeature, refresh } = useWB.getState();
   const [visited, setVisited] = useState<Set<number>>(new Set());
   const [showTour, setShowTour] = useState(recon.mode === "guided");
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -191,7 +191,7 @@ export default function ReconBrief({ data }: { data: EngagementPayload }) {
           )}
           {result.map && <MapView map={result.map} />}
           {next && (
-            <Button className="w-full" tone={next === "incident" ? "amber" : "violet"} icon={<ArrowRight className="size-4" />} onClick={() => void beginTask(next)}>
+            <Button className="w-full" tone={next === "incident" ? "amber" : "violet"} icon={<ArrowRight className="size-4" />} onClick={() => void (next === "feature" ? takeFeature() : beginTask(next))}>
               {next === "incident" ? "Something just came in…" : "Pick up the feature ticket"}
             </Button>
           )}

@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from . import config, curriculum, db, llm
+from .generation import features
 from .generation.manager import manager
 from .learning import engagements as E
 from .learning import drills, mentor, review, scheduler
@@ -173,8 +174,22 @@ async def case_log(case_id: str) -> dict[str, Any]:
 @app.post("/api/engagements")
 async def start_engagement(body: dict = Body(...)) -> dict[str, Any]:
     e = E.start(body["case_id"], body.get("plan") or db.settings().get("default_plan", ["recon", "incident"]))
+    if "feature" in e["plan"]:
+        features.ensure(e["case_id"])  # written while they do recon + the incident
     manager.poke()  # a slot opened in the inbox
     return engagement_payload(e["id"])
+
+
+@app.post("/api/engagements/{eid}/feature/prepare")
+async def prepare_feature(eid: str) -> dict[str, Any]:
+    e = E.get(eid)
+    return {"status": features.ensure(e["case_id"]), "error": features.error(e["case_id"])}
+
+
+@app.get("/api/engagements/{eid}/feature/status")
+async def feature_status(eid: str) -> dict[str, Any]:
+    e = E.get(eid)
+    return {"status": features.status(e["case_id"]), "error": features.error(e["case_id"])}
 
 
 @app.get("/api/engagements/{eid}")
@@ -196,7 +211,7 @@ def engagement_payload(eid: str) -> dict[str, Any]:
         },
         "hints": {k: E.hints_seen(t["id"]) for k, t in tasks.items() if k != "recon"},
         "hint_total": {"incident": len(case["incident"]["meta"].get("hints", [])),
-                       "feature": len(case["feature"]["meta"].get("hints", []))},
+                       "feature": len((case.get("feature") or {}).get("meta", {}).get("hints", []))},
         "settings": {k: db.settings().get(k) for k in ("mentor_name", "timer_mode", "sound")},
     }
 

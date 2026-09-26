@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { Bot, ClipboardList, NotebookText, Sparkles } from "lucide-react";
+import { Bot, ClipboardList, Loader2, NotebookText, Sparkles } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { Button } from "../components/ui";
@@ -23,7 +23,7 @@ export function focusKind(data: EngagementPayload): TaskKind | null {
 }
 
 export default function MissionPanel({ data, viewKind, onDebrief }: { data: EngagementPayload; viewKind: TaskKind | null; onDebrief: (k: TaskKind) => void }) {
-  const { rightTab } = useWB(useShallow((s) => ({ rightTab: s.rightTab })));
+  const { rightTab, featurePreparing } = useWB(useShallow((s) => ({ rightTab: s.rightTab, featurePreparing: s.featurePreparing })));
   const set = useWB.getState().set;
   const kind = viewKind ?? focusKind(data);
   const task = kind ? data.tasks[kind] : null;
@@ -60,10 +60,11 @@ export default function MissionPanel({ data, viewKind, onDebrief }: { data: Enga
       </div>
       <div className="relative min-h-0 flex-1">
         <div className={clsx("absolute inset-0 overflow-y-auto px-4 py-4", rightTab !== "brief" && "hidden")}>
-          {kind === "recon" && <ReconBrief data={data} />}
-          {kind === "incident" && data.case.incident && <IncidentBrief data={data} onDone={() => onDebrief("incident")} />}
-          {kind === "feature" && data.case.feature && <FeatureBrief data={data} onDone={() => onDebrief("feature")} />}
-          {kind && kind !== "recon" && task && ["passed", "revealed", "failed"].includes(task.status) && (
+          {featurePreparing && <FeaturePreparing data={data} />}
+          {!featurePreparing && kind === "recon" && <ReconBrief data={data} />}
+          {!featurePreparing && kind === "incident" && data.case.incident && <IncidentBrief data={data} onDone={() => onDebrief("incident")} />}
+          {!featurePreparing && kind === "feature" && data.case.feature && <FeatureBrief data={data} onDone={() => onDebrief("feature")} />}
+          {!featurePreparing && kind && kind !== "recon" && task && ["passed", "revealed", "failed"].includes(task.status) && (
             <Button className="mt-4 w-full" tone={KIND_TONE[kind]} icon={<Sparkles className="size-4" />} onClick={() => onDebrief(kind)}>
               Open the debrief
             </Button>
@@ -78,6 +79,46 @@ export default function MissionPanel({ data, viewKind, onDebrief }: { data: Enga
           <Notes eid={data.engagement.id} initial={data.engagement.notes} />
         </div>
       </div>
+    </div>
+  );
+}
+
+function FeaturePreparing({ data }: { data: EngagementPayload }) {
+  const [error, setError] = useState<string | null>(null);
+  const author = data.case.feature_author || data.case.company.team.find((p) => /product|pm|lead/i.test(p.role))?.name || "Product";
+  useEffect(() => {
+    let alive = true;
+    const tick = async () => {
+      const r = await api.featureStatus(data.engagement.id);
+      if (!alive) return;
+      if (r.status === "ready") {
+        useWB.getState().set({ featurePreparing: false });
+        await useWB.getState().beginTask("feature");
+      } else if (r.status === "failed" || r.status === "none") {
+        setError(r.error ?? "Something went wrong writing the ticket.");
+      }
+    };
+    const id = window.setInterval(() => void tick(), 4000);
+    void tick();
+    return () => {
+      alive = false;
+      window.clearInterval(id);
+    };
+  }, [data.engagement.id]);
+  return (
+    <div className="rounded-xl border border-violet/20 bg-violet-dim/30 p-5">
+      <div className="flex items-center gap-2 text-[14px] font-medium text-violet">
+        <Loader2 className="size-4 animate-spin" /> {author} is writing up the ticket…
+      </div>
+      <p className="mt-2 text-[13px] leading-relaxed text-fg-1">
+        It's being specified against this exact codebase and checked by running its tests — usually a minute or two. Poke around the code meanwhile; you'll want to know where things live.
+      </p>
+      {error && (
+        <div className="mt-3 text-[12.5px] text-red">
+          {error}{" "}
+          <button className="underline" onClick={() => { setError(null); void useWB.getState().takeFeature(); }}>Try again</button>
+        </div>
+      )}
     </div>
   );
 }

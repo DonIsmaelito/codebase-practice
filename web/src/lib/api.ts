@@ -73,6 +73,8 @@ export const api = {
   events: (eid: string, taskId: string | null, events: { kind: string; data?: unknown; ts?: number }[]) =>
     post(`/api/engagements/${eid}/events`, { task_id: taskId, events }),
   wrapup: (eid: string) => get<WrapupPayload>(`/api/engagements/${eid}/wrapup`),
+  prepareFeature: (eid: string) => post<{ status: string; error: string | null }>(`/api/engagements/${eid}/feature/prepare`),
+  featureStatus: (eid: string) => get<{ status: string; error: string | null }>(`/api/engagements/${eid}/feature/status`),
 
   tick: (taskId: string, seconds: number) => post<{ active_seconds: number }>(`/api/tasks/${taskId}/tick`, { seconds }),
   hint: (taskId: string) => post<{ level: number; total: number; hints: string[] }>(`/api/tasks/${taskId}/hint`),

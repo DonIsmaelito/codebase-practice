@@ -248,6 +248,8 @@ Your exercises must be:
 - Fair: everything needed to succeed is discoverable from the codebase and the materials the learner gets. Tests only check behavior that is specified or clearly implied.
 - Instructive: each exercise teaches a transferable principle, and your explanations make it click.
 
+Never put concept ids or textbook concept names (e.g. "dict_semantics", "off_by_one", "mutable_default") into file names, identifiers, comments, commit-style titles, or anything the learner sees before the debrief — name things after the product and the feature, the way the company would.
+
 Follow the requested output format exactly."""
 
 
@@ -416,7 +418,7 @@ REQUIREMENTS
 1. A realistic, useful feature this company would actually want that naturally exercises the FEATURE CONCEPT. Scope: about {scope} lines of new/changed code for a strong engineer. Adjust the architect's idea if a better one fits.
 2. The ticket must fully specify every behavior the tests check. Its "interface" section gives exact names, signatures, return types, and error behavior for everything tests call. The learner must never have to guess something a test asserts.
 3. Reference implementation as <ref_edit> search/replace blocks against the CURRENT code (plus <ref_file path="..."> for new files). Follow the codebase's conventions. Existing tests must keep passing.
-4. <acceptance_tests path="tests/test_<feature_slug>.py">: 2-4 straightforward tests of the main behavior, given to the learner up front like QA's acceptance checks.
+4. <acceptance_tests path="tests/test_<feature_slug>.py">: 2-4 straightforward tests of the main behavior, given to the learner up front like QA's acceptance checks. <feature_slug> names the product feature (e.g. test_trace_asset.py, test_waitlist_promotion.py).
 5. <hidden_tests>: 3-7 more tests of the ticket's edge cases and acceptance criteria. Every assertion must follow from the ticket text. No private helpers, internal structure, or log text.
 6. All tests deterministic and fast, importing `from {package}... import ...` (fixtures from tests/conftest.py are available).
 

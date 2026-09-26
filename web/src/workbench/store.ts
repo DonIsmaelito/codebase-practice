@@ -41,6 +41,7 @@ interface WorkbenchState {
   quickOpen: boolean;
   diffView: string | null; // path shown in diff mode
   codeHidden: boolean; // closed-book recon: code is hidden while answering
+  featurePreparing: boolean; // the optional ticket is being written on demand
   editedOnce: Set<string>;
   queue: { kind: string; data?: unknown; ts: number }[];
 
@@ -61,6 +62,7 @@ interface WorkbenchState {
   runTests: (targets?: string[]) => Promise<TestReport | null>;
   activeTask: () => Task | null;
   beginTask: (kind: TaskKind) => Promise<void>;
+  takeFeature: () => Promise<void>;
   reset: () => void;
 }
 
@@ -84,6 +86,7 @@ const initial = {
   quickOpen: false,
   diffView: null,
   codeHidden: false,
+  featurePreparing: false,
   editedOnce: new Set<string>(),
   queue: [] as { kind: string; data?: unknown; ts: number }[],
 };
@@ -250,6 +253,18 @@ export const useWB = create<WorkbenchState>((set, get) => ({
       } catch {
         /* file may be gone */
       }
+    }
+  },
+
+  async takeFeature() {
+    const { eid } = get();
+    if (!eid) return;
+    const r = await api.prepareFeature(eid);
+    if (r.status === "ready") {
+      set({ featurePreparing: false });
+      await get().beginTask("feature");
+    } else {
+      set({ featurePreparing: true, rightTab: "brief" });
     }
   },
 

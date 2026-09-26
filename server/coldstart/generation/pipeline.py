@@ -496,7 +496,8 @@ class Pipeline:
 
     # --- orchestration -------------------------------------------------------------
 
-    async def run(self) -> dict[str, Any]:
+    async def run(self, eager_feature: bool = False) -> dict[str, Any]:
+        """Generate a case. The feature ticket is generated lazily (on demand) unless eager."""
         t0 = time.monotonic()
         self.note(f"spec: {json.dumps(self._spec_summary())}")
         design = await self.architect()
@@ -513,11 +514,12 @@ class Pipeline:
         try:
             async with asyncio.TaskGroup() as tg:
                 report_t = tg.create_task(self.write_report(design, incident))
-                feature_t = tg.create_task(self.design_feature(prefix, design))
+                feature_t = tg.create_task(self.design_feature(prefix, design)) if eager_feature else None
                 recon_t = tg.create_task(self.design_recon(prefix, design, incident))
         except* Exception as group:
             raise group.exceptions[0] from None
-        report, feature, recon = report_t.result(), feature_t.result(), recon_t.result()
+        report, recon = report_t.result(), recon_t.result()
+        feature = feature_t.result() if feature_t else None
 
         materials = self._qa_materials(design, incident, report, feature, recon)
         qa = await self.qa(prefix, materials)
@@ -554,16 +556,20 @@ class Pipeline:
 {incident['hidden_tests']}
 </hidden_incident_tests>
 <incident_meta>{json.dumps(meta, indent=1)}</incident_meta>
-<feature_ticket>{json.dumps(feature['meta']['ticket'], indent=1)}</feature_ticket>
+{self._feature_materials(feature) if feature else ""}
+<recon>{json.dumps({k: recon.get(k) for k in ('briefing', 'tour', 'questions')}, indent=1)}</recon>
+<verification>All automated checks passed: clean suite green; hidden incident tests pass on clean code and fail with the bug; existing tests still pass with the bug; feature tests fail before and pass after the reference implementation; predict answers were computed by executing the code.</verification>
+</materials>"""
+
+    @staticmethod
+    def _feature_materials(feature: dict[str, Any]) -> str:
+        return f"""<feature_ticket>{json.dumps(feature['meta']['ticket'], indent=1)}</feature_ticket>
 <feature_acceptance_tests path="{feature['acceptance']['path']}">
 {feature['acceptance']['content']}
 </feature_acceptance_tests>
 <feature_hidden_tests>
 {feature['hidden_tests']}
-</feature_hidden_tests>
-<recon>{json.dumps({k: recon.get(k) for k in ('briefing', 'tour', 'questions')}, indent=1)}</recon>
-<verification>All automated checks passed: clean suite green; hidden incident tests pass on clean code and fail with the bug; existing tests still pass with the bug; feature tests fail before and pass after the reference implementation; predict answers were computed by executing the code.</verification>
-</materials>"""
+</feature_hidden_tests>"""
 
     def _apply_patches(self, qa, report, feature, recon, incident):
         patches = qa.get("patches") or {}
@@ -572,7 +578,7 @@ class Pipeline:
         if isinstance(patches.get("report_messages"), list) and patches["report_messages"]:
             report = {**report, "messages": patches["report_messages"]}
             self.note("QA patched report messages")
-        if isinstance(patches.get("feature_ticket"), dict):
+        if feature and isinstance(patches.get("feature_ticket"), dict):
             feature["meta"]["ticket"] = {**feature["meta"]["ticket"], **patches["feature_ticket"]}
             self.note("QA patched feature ticket")
         if isinstance(patches.get("recon_questions"), list) and patches["recon_questions"]:
@@ -598,15 +604,15 @@ class Pipeline:
         hidden_dir = self.dir / "hidden"
         hidden_dir.mkdir(exist_ok=True)
         (hidden_dir / "incident_test.py").write_text(incident["hidden_tests"])
-        (hidden_dir / "feature_test.py").write_text(feature["hidden_tests"])
-        (self.dir / "feature").mkdir(exist_ok=True)
-        (self.dir / "feature" / "reference.diff").write_text(feature["reference_diff"])
+        if feature:
+            self._write_feature_files(feature)
 
         repo_files = F.read_repo(self.dir / "repo")
         stats = F.repo_stats(repo_files)
         regression_path = (incident.get("regression_test") or {}).get("path")
         bug_diff = F.unified_diff(clean_files, {k: v for k, v in repo_files.items() if k != regression_path})
-        imeta, fmeta = incident["meta"], feature["meta"]
+        imeta = incident["meta"]
+        fmeta = feature["meta"] if feature else {}
         spec = self.spec
         par_incident = int(imeta.get("par_minutes") or spec["par_incident"])
         par_recon = spec["par_recon"]
@@ -665,19 +671,31 @@ class Pipeline:
                 "regression_test": incident.get("regression_test"),
                 "hidden_tests_path": "hidden/incident_test.py",
             },
-            "feature": {
-                "title": fmeta.get("title"),
-                "inbox_subject": fmeta.get("inbox_subject"),
-                "author": fmeta.get("author"),
-                "ticket": fmeta.get("ticket"),
-                "par_minutes": int(fmeta.get("par_minutes") or 25),
-                "meta": {k: v for k, v in fmeta.items() if k not in ("ticket",)},
-                "acceptance": feature["acceptance"],
-                "reference_edits": feature["edits"],
-                "hidden_tests_path": "hidden/feature_test.py",
-            },
+            "feature": self._feature_section(feature) if feature else None,
+            "feature_plan": design.get("feature_plan"),
             "qa": {"verdict": qa.get("verdict"), "issues": qa.get("issues", [])},
             "generation": {"timings": {k: round(v) for k, v in self.timings.items()}},
+        }
+
+    def _write_feature_files(self, feature: dict[str, Any]) -> None:
+        (self.dir / "hidden").mkdir(exist_ok=True)
+        (self.dir / "hidden" / "feature_test.py").write_text(feature["hidden_tests"])
+        (self.dir / "feature").mkdir(exist_ok=True)
+        (self.dir / "feature" / "reference.diff").write_text(feature["reference_diff"])
+
+    @staticmethod
+    def _feature_section(feature: dict[str, Any]) -> dict[str, Any]:
+        fmeta = feature["meta"]
+        return {
+            "title": fmeta.get("title"),
+            "inbox_subject": fmeta.get("inbox_subject"),
+            "author": fmeta.get("author"),
+            "ticket": fmeta.get("ticket"),
+            "par_minutes": int(fmeta.get("par_minutes") or 25),
+            "meta": {k: v for k, v in fmeta.items() if k not in ("ticket",)},
+            "acceptance": feature["acceptance"],
+            "reference_edits": feature["edits"],
+            "hidden_tests_path": "hidden/feature_test.py",
         }
 
     def close(self) -> None:
@@ -700,3 +718,42 @@ async def generate(case_id: str, spec: dict[str, Any]) -> dict[str, Any]:
     db.run("UPDATE cases SET status = 'ready', card = ?, finished_at = ?, stage = NULL WHERE id = ?",
            db.dumps(case["card"]), time.time(), case_id)
     return case
+
+
+async def generate_feature(case_id: str) -> dict[str, Any]:
+    """Write + verify the feature ticket for an existing case (on demand)."""
+    from .. import curriculum
+
+    d = config.LIBRARY_DIR / case_id
+    case = json.loads((d / "case.json").read_text())
+    if case.get("feature"):
+        return case["feature"]
+    design = json.loads((d / "design.json").read_text())
+    concept = curriculum.load().concepts[case["concepts"]["feature"]]
+    spec = {"level": case["spec"]["level"], "feature_concept": concept.to_dict()}
+    pipe = Pipeline(case_id, spec)
+    pipe._repo_name = design["repo"]["name"]
+    try:
+        F.copy_repo(d / "clean", pipe.work / "clean")
+        clean_files = F.read_repo(pipe.work / "clean")
+        prefix = P.designer_prefix(P.case_context(spec, design), F.render_repo(clean_files))
+        feature = await pipe.design_feature(prefix, design)
+        qa = await pipe.qa(prefix, f"<materials>\n{pipe._feature_materials(feature)}\n"
+                                   "<verification>Feature tests fail before and pass after the reference implementation.</verification>\n</materials>")
+        patch = (qa.get("patches") or {}).get("feature_ticket")
+        if isinstance(patch, dict):
+            feature["meta"]["ticket"] = {**feature["meta"]["ticket"], **patch}
+            pipe.note("QA patched feature ticket")
+        pipe._write_feature_files(feature)
+        case = json.loads((d / "case.json").read_text())
+        case["feature"] = pipe._feature_section(feature)
+        case["card"]["minutes"]["feature"] = case["feature"]["par_minutes"]
+        (d / "case.json").write_text(json.dumps(case, indent=2))
+        pipe.note("feature ready")
+        return case["feature"]
+    except Exception as err:
+        pipe.note(f"feature FAILED: {type(err).__name__}: {err}")
+        raise
+    finally:
+        pipe.close()
+        shutil.rmtree(pipe.work, ignore_errors=True)

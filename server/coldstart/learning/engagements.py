@@ -94,7 +94,9 @@ def public_case(case: dict[str, Any], tasks: dict[str, dict[str, Any]]) -> dict[
         if inc_task["status"] in ("passed", "revealed"):
             out["incident"]["solution"] = incident_solution(case)
             out["concepts"]["incident"] = case["concepts"]["incident"]
-    if feat_task and feat_task["status"] != "pending":
+    out["feature_ready"] = bool(case.get("feature"))
+    out["feature_author"] = (case.get("feature_plan") or {}).get("reporter")
+    if feat_task and feat_task["status"] not in ("pending", "skipped") and case.get("feature"):
         feat = case["feature"]
         out["feature"] = {
             "title": feat["title"],
@@ -226,6 +228,8 @@ def begin_task(engagement_id: str, kind: str) -> dict[str, Any]:
         if other["status"] == "active" and other["kind"] != kind:
             _finish(other["id"], "skipped" if other["kind"] != "recon" else "failed")
     if kind == "feature":
+        if not case.get("feature"):
+            raise EngagementError("The feature ticket is still being written — give it a moment.")
         _prepare_feature(ws, case, tasks.get("incident"))
     ws.snapshot(t["id"])
     base = ws.head()

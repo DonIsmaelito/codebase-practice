@@ -21,7 +21,7 @@ const verdictTone: Record<string, "green" | "amber" | "red" | "neutral"> = { cor
 export default function Debrief({ data, kind, onClose }: { data: EngagementPayload; kind: TaskKind; onClose: () => void }) {
   const task = data.tasks[kind];
   const navigate = useNavigate();
-  const { beginTask, refresh, openFile } = useWB.getState();
+  const { takeFeature, refresh, openFile } = useWB.getState();
   const cached = task.result?.review ? task.result : null;
   const [explanation, setExplanation] = useState("");
   const [result, setResult] = useState<TaskResult | null>(cached);
@@ -185,7 +185,7 @@ export default function Debrief({ data, kind, onClose }: { data: EngagementPaylo
 
             <div className="flex flex-wrap items-center gap-3 border-t border-line pt-8">
               {featureAvailable && (
-                <Button tone="violet" size="lg" icon={<Hammer className="size-4" />} onClick={() => { onClose(); void beginTask("feature"); }}>
+                <Button tone="violet" size="lg" icon={<Hammer className="size-4" />} onClick={() => { onClose(); void takeFeature(); }}>
                   Stay late: take the feature ticket
                 </Button>
               )}

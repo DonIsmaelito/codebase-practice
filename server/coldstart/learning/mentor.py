@@ -29,7 +29,7 @@ location: {meta.get('root_cause_file')} :: {meta.get('root_cause_symbol')}
 fix: {meta.get('fix')}
 expert path: {json.dumps(meta.get('expert_path'))}"""
         task = f"Investigating an incident. The report:\n{json.dumps(case['incident']['report'], indent=1)}"
-    elif kind == "feature":
+    elif kind == "feature" and case.get("feature"):
         feat = case["feature"]
         secret = f"""REFERENCE APPROACH (don't write their code for them):
 {(E.case_dir(case['id']) / 'feature' / 'reference.diff').read_text()[:6000]}

@@ -191,6 +191,8 @@ export interface PublicCase {
     stats: RepoStats;
   };
   card: CaseCard;
+  feature_ready: boolean;
+  feature_author?: string | null;
   concepts: { incident: string | null; feature: string | null; flavor: string[] };
   recon: {
     mode: "guided" | "open" | "closed";

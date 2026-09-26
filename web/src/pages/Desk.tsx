@@ -9,11 +9,13 @@ import { Button, Card, Chip, Markdown, Monogram, SectionLabel, Spinner } from ".
 import { api } from "../lib/api";
 import { useDesk } from "../lib/desk";
 import { ago, duration, fidelityLabel, greeting } from "../lib/format";
+import { usePageTitle } from "../lib/title";
 import type { CaseCard, Concept, PipelineItem, RecallCard, Region } from "../lib/types";
 
 const channelIcon: Record<string, typeof Mail> = { slack: Hash, email: Mail, jira: FileText, pager: Radio };
 
 export default function Desk() {
+  usePageTitle("Desk");
   const { state, load, error } = useDesk();
   const [atlas, setAtlas] = useState<{ regions: Region[]; concepts: Concept[] } | null>(null);
 
@@ -39,7 +41,7 @@ export default function Desk() {
   if (!state) {
     return (
       <div className="grid h-[60vh] place-items-center">
-        {error ? <div className="text-red">Can't reach the Cold Start server: {error}</div> : <Spinner className="size-6" />}
+        {error ? <div className="text-red">Can't reach the server: {error}</div> : <Spinner className="size-6" />}
       </div>
     );
   }

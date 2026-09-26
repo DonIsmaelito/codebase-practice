@@ -1,4 +1,4 @@
-// Monaco setup: workers, the Cold Start theme, and Python intelligence backed
+// Monaco setup: workers, the app theme, and Python intelligence backed
 // by jedi on the server (definition, references, hover, outline).
 import { loader } from "@monaco-editor/react";
 import * as monaco from "monaco-editor";

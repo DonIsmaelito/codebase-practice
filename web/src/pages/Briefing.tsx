@@ -5,9 +5,9 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { Avatar, Button, Card, Chip, Monogram, SectionLabel, Spinner } from "../components/ui";
 import { api } from "../lib/api";
-import { authHeaders } from "../lib/auth";
 import { useDesk } from "../lib/desk";
 import { channelLabel, fidelityLabel } from "../lib/format";
+import { usePageTitle } from "../lib/title";
 import type { CaseCard, Company, TaskKind } from "../lib/types";
 
 interface Preview {
@@ -34,10 +34,10 @@ export default function Briefing() {
   const [plan, setPlan] = useState<Set<TaskKind>>(new Set(["recon", "incident"]));
   const [starting, setStarting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  usePageTitle(p?.company.name);
 
   useEffect(() => {
-    authHeaders()
-      .then((headers) => fetch(`/api/cases/${caseId}`, { headers }))
+    fetch(`/api/cases/${caseId}`)
       .then((r) => r.json())
       .then((data: Preview) => {
         setP(data);

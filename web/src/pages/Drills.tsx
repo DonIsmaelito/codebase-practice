@@ -4,7 +4,7 @@ import { ArrowRight, CheckCircle2, Timer, XCircle } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { REGION_COLORS } from "../components/HexMap";
 import { Button, Card, Chip, Markdown, Spinner } from "../components/ui";
-import { authHeaders } from "../lib/auth";
+import { usePageTitle } from "../lib/title";
 
 // Two-minute reps. Predict-the-output answers are the program's REAL output;
 // spot-the-bug drills were verified to fail as written and pass when fixed.
@@ -30,7 +30,7 @@ interface Result {
 async function call<T>(url: string, body?: unknown): Promise<T> {
   const res = await fetch(url, {
     method: body ? "POST" : "GET",
-    headers: { ...(body ? { "Content-Type": "application/json", "X-Coldstart": "1" } : {}), ...(await authHeaders()) },
+    headers: body ? { "Content-Type": "application/json", "X-Coldstart": "1" } : {},
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) throw new Error(await res.text());
@@ -54,6 +54,7 @@ function useColorizedLines(code: string): string[] | null {
 }
 
 export default function Drills() {
+  usePageTitle("Drills");
   const [drill, setDrill] = useState<Drill | null>(null);
   const [generating, setGenerating] = useState(false);
   const [week, setWeek] = useState(0);

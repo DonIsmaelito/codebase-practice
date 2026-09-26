@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
 import { Markdown, Spinner } from "../components/ui";
 import { api } from "../lib/api";
+import { usePageTitle } from "../lib/title";
 
 export default function Playbook() {
   const { slug } = useParams();
@@ -12,6 +13,7 @@ export default function Playbook() {
   useEffect(() => {
     api.playbook().then(setList);
   }, []);
+  usePageTitle(article?.title ?? "Playbook");
   const current = slug ?? list?.[0]?.slug;
   useEffect(() => {
     if (!current) return;

@@ -7,9 +7,9 @@ import { Link, useNavigate, useParams } from "react-router";
 import { useShallow } from "zustand/react/shallow";
 import { Avatar, Button, Kbd, Markdown, Monogram, Spinner } from "../components/ui";
 import { api } from "../lib/api";
-import { authHeaders } from "../lib/auth";
 import { useDesk } from "../lib/desk";
 import { disposeAllModels, registerPythonIntel, setIntelContext } from "../lib/monaco";
+import { usePageTitle } from "../lib/title";
 import type { TaskKind } from "../lib/types";
 import BottomPanel from "./BottomPanel";
 import Debrief from "./Debrief";
@@ -32,6 +32,7 @@ export default function Workbench() {
   const [viewKind, setViewKind] = useState<TaskKind | null>(null);
   const [debrief, setDebrief] = useState<TaskKind | null>(null);
   const [help, setHelp] = useState(false);
+  usePageTitle(data?.case.company.name);
   const sideRef = usePanelRef();
   const bottomRef = usePanelRef();
 
@@ -45,21 +46,14 @@ export default function Workbench() {
       log: (kind, d) => useWB.getState().log(kind, d),
     });
     load(eid).catch((e) => setError((e as Error).message));
-    // beforeunload can't await a token refresh, so keep the latest headers around.
-    let lastAuthHeaders: Record<string, string> = {};
-    const refreshHeaders = () => void authHeaders().then((h) => (lastAuthHeaders = h));
-    refreshHeaders();
-    const flushId = window.setInterval(() => {
-      void flush();
-      refreshHeaders();
-    }, 5000);
+    const flushId = window.setInterval(() => void flush(), 5000);
     const onUnload = () => {
       const { queue, eid: id } = useWB.getState();
       if (queue.length && id) {
         void fetch(`/api/engagements/${id}/events`, {
           method: "POST",
           keepalive: true,
-          headers: { "Content-Type": "application/json", "X-Coldstart": "1", ...lastAuthHeaders },
+          headers: { "Content-Type": "application/json", "X-Coldstart": "1" },
           body: JSON.stringify({ events: queue }),
         });
       }

@@ -2,7 +2,6 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { RotateCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { accessToken, authEnabled } from "../lib/auth";
 import { findRefs } from "./links";
 import { useWB } from "./store";
 
@@ -78,20 +77,7 @@ export default function Terminal({ visible }: { visible: boolean }) {
 
     const proto = location.protocol === "https:" ? "wss" : "ws";
     const ws = new WebSocket(`${proto}://${location.host}/api/ws/${eid}/terminal?cols=${term.cols}&rows=${term.rows}`);
-    // Hosted mode: browsers can't put headers on a WebSocket, so the token goes
-    // first — and anything typed before it's sent waits in a small queue.
-    let ready = false;
-    const pending: string[] = [];
-    const send = (msg: object) => {
-      const text = JSON.stringify(msg);
-      if (ready && ws.readyState === WebSocket.OPEN) ws.send(text);
-      else pending.push(text);
-    };
-    ws.onopen = async () => {
-      if (authEnabled()) ws.send(JSON.stringify({ t: "auth", token: await accessToken() }));
-      ready = true;
-      for (const text of pending.splice(0)) ws.send(text);
-    };
+    const send = (msg: object) => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify(msg));
     ws.onmessage = (ev) => term.write(typeof ev.data === "string" ? ev.data : "");
     ws.onclose = () => {
       term.write("\r\n\x1b[38;5;245m[session closed]\x1b[0m\r\n");

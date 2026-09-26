@@ -6,6 +6,7 @@ import HexMap, { REGION_COLORS } from "../components/HexMap";
 import { Button, Card, Chip, Markdown, SectionLabel, Spinner } from "../components/ui";
 import { api } from "../lib/api";
 import { ago, stateLabel } from "../lib/format";
+import { usePageTitle } from "../lib/title";
 import type { Concept, MasteryState, Region } from "../lib/types";
 
 const STATES: MasteryState[] = ["fog", "glimpsed", "practiced", "solid", "mastered"];
@@ -18,6 +19,7 @@ const STATE_COPY: Record<MasteryState, string> = {
 };
 
 export default function Atlas() {
+  usePageTitle("Atlas");
   const [data, setData] = useState<{ regions: Region[]; concepts: Concept[] } | null>(null);
   const [sel, setSel] = useState<Concept | null>(null);
   const [queued, setQueued] = useState<string | null>(null);

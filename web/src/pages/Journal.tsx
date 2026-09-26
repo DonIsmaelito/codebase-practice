@@ -5,9 +5,11 @@ import { REGION_COLORS } from "../components/HexMap";
 import { Card, Chip, EmptyState, Markdown, Spinner } from "../components/ui";
 import { api } from "../lib/api";
 import { ago } from "../lib/format";
+import { usePageTitle } from "../lib/title";
 import type { JournalEntry } from "../lib/types";
 
 export default function Journal() {
+  usePageTitle("Journal");
   const [entries, setEntries] = useState<JournalEntry[] | null>(null);
   const [query, setQuery] = useState("");
   const [region, setRegion] = useState<string | null>(null);

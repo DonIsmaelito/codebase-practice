@@ -1,8 +1,7 @@
 import clsx from "clsx";
-import { LogOut, Settings } from "lucide-react";
+import { Settings } from "lucide-react";
 import { useEffect } from "react";
 import { Link, NavLink } from "react-router";
-import { authEnabled, signOut } from "../lib/auth";
 import { useDesk } from "../lib/desk";
 
 const links = [
@@ -13,19 +12,6 @@ const links = [
   { to: "/progress", label: "Progress" },
   { to: "/playbook", label: "Playbook" },
 ];
-
-export function Logo({ className }: { className?: string }) {
-  return (
-    <span className={clsx("inline-flex items-center gap-2", className)}>
-      <svg viewBox="0 0 32 32" className="size-6">
-        <rect width="32" height="32" rx="8" fill="#141824" stroke="#2a3143" />
-        <path d="M9 11l5 5-5 5" fill="none" stroke="#72b4ff" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M16.5 21.5h7" stroke="#f5b454" strokeWidth="2.6" strokeLinecap="round" />
-      </svg>
-      <span className="font-serif text-[21px] leading-none tracking-tight text-fg-0">Cold Start</span>
-    </span>
-  );
-}
 
 export default function TopNav() {
   const { state, load } = useDesk();
@@ -38,9 +24,6 @@ export default function TopNav() {
   return (
     <header className="sticky top-0 z-30 border-b border-line bg-ink-0/80 backdrop-blur-md">
       <div className="mx-auto flex h-14 max-w-[1280px] items-center gap-8 px-6">
-        <Link to="/" className="shrink-0">
-          <Logo />
-        </Link>
         <nav className="flex items-center gap-1">
           {links.map((l) => (
             <NavLink
@@ -78,11 +61,6 @@ export default function TopNav() {
             >
               ${remaining.toFixed(2)}
             </span>
-          )}
-          {authEnabled() && (
-            <button onClick={() => void signOut()} className="rounded-md p-1.5 text-fg-2 transition-colors hover:text-fg-0" title="Sign out">
-              <LogOut className="size-4" />
-            </button>
           )}
           <NavLink
             to="/settings"

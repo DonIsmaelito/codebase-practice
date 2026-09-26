@@ -3,6 +3,7 @@ import { Check } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Card, SectionLabel, Segmented, Spinner } from "../components/ui";
 import { api, type SettingsPayload } from "../lib/api";
+import { usePageTitle } from "../lib/title";
 import type { Settings } from "../lib/types";
 
 const ROLES: { id: string; label: string; what: string }[] = [
@@ -16,6 +17,7 @@ const ROLES: { id: string; label: string; what: string }[] = [
 ];
 
 export default function SettingsPage() {
+  usePageTitle("Settings");
   const [data, setData] = useState<SettingsPayload | null>(null);
   const [models, setModels] = useState<{ id: string; name: string; prompt: number; completion: number }[]>([]);
   const [saved, setSaved] = useState(false);
@@ -53,7 +55,7 @@ export default function SettingsPage() {
           </div>
           <div>
             <div className="text-[30px] font-semibold text-fg-0">${data.spend.total_usd.toFixed(2)}</div>
-            <div className="text-[12px] text-fg-2">spent by Cold Start</div>
+            <div className="text-[12px] text-fg-2">spent so far</div>
           </div>
         </div>
         {data.spend.by_role.length > 0 && (
@@ -79,6 +81,11 @@ export default function SettingsPage() {
           </table>
         )}
         <div className="mt-5 flex flex-wrap items-center gap-6">
+          <label className="flex items-center gap-2 text-[13px] text-fg-1" title="There's no login, so this caps what anyone (or a bug) can spend in a day">
+            Daily AI budget
+            <input type="number" min={0} step={1} defaultValue={s.daily_budget_usd} onBlur={(e) => void save({ daily_budget_usd: Number(e.target.value) })}
+              className="w-20 rounded-md border border-line-strong bg-ink-0 px-2 py-1 text-fg-0 outline-none focus:border-blue" /> USD / 24h
+          </label>
           <label className="flex items-center gap-2 text-[13px] text-fg-1">
             Pause background generation below
             <input type="number" min={0} step={0.5} defaultValue={s.budget_floor_usd} onBlur={(e) => void save({ budget_floor_usd: Number(e.target.value) })}
@@ -181,9 +188,6 @@ export default function SettingsPage() {
           </div>
         </Card>
       )}
-      <div className={clsx("mt-6 text-[12px] text-fg-3")}>
-        Your key lives only in <code className="font-mono">.env</code> on this machine. Generated codebases and your progress live in <code className="font-mono">data/</code>.
-      </div>
     </div>
   );
 }

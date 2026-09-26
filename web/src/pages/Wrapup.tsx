@@ -7,12 +7,14 @@ import { Avatar, Button, Card, Chip, Monogram, SectionLabel, Spinner } from "../
 import { api, type WrapupPayload } from "../lib/api";
 import { useDesk } from "../lib/desk";
 import { duration, stateLabel } from "../lib/format";
+import { usePageTitle } from "../lib/title";
 import type { CaseCard } from "../lib/types";
 
 export default function Wrapup() {
   const { eid } = useParams();
   const [data, setData] = useState<WrapupPayload | null>(null);
   const loadDesk = useDesk((s) => s.load);
+  usePageTitle(data ? `${data.company.name} · wrap-up` : null);
 
   useEffect(() => {
     if (eid) api.wrapup(eid).then(setData);

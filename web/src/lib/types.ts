@@ -69,6 +69,7 @@ export interface Settings {
   buffer_size: number;
   auto_generate: boolean;
   budget_floor_usd: number;
+  daily_budget_usd: number;
   default_plan: TaskKind[];
   timer_mode: "stopwatch" | "countdown";
   mentor_name: string;

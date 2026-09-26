@@ -4,6 +4,7 @@ import LineChart, { type Point } from "../components/LineChart";
 import { Card, Chip, EmptyState, SectionLabel, Spinner } from "../components/ui";
 import { api } from "../lib/api";
 import { duration } from "../lib/format";
+import { usePageTitle } from "../lib/title";
 import type { ProgressRow } from "../lib/types";
 
 // Chart mark hues, validated against the dark chart surface (#0e1118):
@@ -30,6 +31,7 @@ function Stat({ label, value, note }: { label: string; value: string; note?: str
 }
 
 export default function Progress() {
+  usePageTitle("Progress");
   const [data, setData] = useState<{ engagements: ProgressRow[]; calendar: { day: string; seconds: number }[] } | null>(null);
   useEffect(() => {
     api.progress().then(setData);

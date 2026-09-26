@@ -266,6 +266,7 @@ export interface TaskResult {
   timeline?: string;
   solution?: IncidentSolution & FeatureSolution;
   previous_encounters?: { company: string; subject: string; lesson: string; when: number; case_id: string }[];
+  speed?: { root_file_seconds: number | null; usual_root_file_seconds: number | null; par_ratio: number | null; usual_par_ratio: number | null };
   journal_id?: number;
   // recon
   results?: ReconResult["results"];

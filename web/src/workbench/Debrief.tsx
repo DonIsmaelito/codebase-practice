@@ -85,6 +85,12 @@ export default function Debrief({ data, kind, onClose }: { data: EngagementPaylo
             </Chip>
             <Chip mono>{task.hints_used} hints</Chip>
             {task.attempts > 1 && <Chip mono>{task.attempts} submissions</Chip>}
+            {r?.speed?.root_file_seconds != null && (
+              <Chip tone="amber">
+                found the right file in {clock(r.speed.root_file_seconds)}
+                {r.speed.usual_root_file_seconds != null && ` · your usual ${clock(r.speed.usual_root_file_seconds)}`}
+              </Chip>
+            )}
             {concept && concept.before !== concept.state && (
               <Chip tone="blue">
                 <Sparkles className="size-3" /> {stateLabel[concept.before]} → {stateLabel[concept.state]}

@@ -212,10 +212,34 @@ Line numbers in comments refer to the NEW file (the + side of their diff). 3-8 c
     result["timeline"] = timeline
     result["solution"] = sol
     result["previous_encounters"] = previous_encounters(case["concepts"][t["kind"]], exclude_case=case["id"])
+    result["speed"] = _speed(t, result)
     entry_id = _journal_entry(case, t, review)
     result["journal_id"] = entry_id
     E._finish(task_id, t["status"], result)
     return result
+
+
+def _speed(t: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
+    """This task's pace next to the learner's own history (never a score)."""
+    rows = db.all_("SELECT result FROM tasks WHERE kind = ? AND id != ? AND status IN ('passed', 'revealed', 'failed')",
+                   t["kind"], t["id"])
+    past_root = [r["time_to_root_file"] for r in (db.loads(x["result"], {}) for x in rows) if r.get("time_to_root_file")]
+    past_ratio = [r["seconds"] / r["par_seconds"] for r in (db.loads(x["result"], {}) for x in rows)
+                  if r.get("seconds") and r.get("par_seconds")]
+
+    def median(xs: list[float]) -> float | None:
+        if not xs:
+            return None
+        xs = sorted(xs)
+        mid = len(xs) // 2
+        return xs[mid] if len(xs) % 2 else (xs[mid - 1] + xs[mid]) / 2
+
+    return {
+        "root_file_seconds": result.get("time_to_root_file"),
+        "usual_root_file_seconds": median(past_root[-8:]),
+        "par_ratio": (result["seconds"] / result["par_seconds"]) if result.get("seconds") and result.get("par_seconds") else None,
+        "usual_par_ratio": median(past_ratio[-8:]),
+    }
 
 
 def previous_encounters(concept_id: str, exclude_case: str) -> list[dict[str, Any]]:

@@ -22,3 +22,21 @@ data/
 .DS_Store
 .idea/
 .vscode/
+
+# InsForge link config (contains the project admin API key) — never commit
+.insforge/
+
+# InsForge & AI agent skills
+.insforge
+.agent
+.agents
+.augment
+.claude
+.cline
+.github/copilot*
+.kilocode
+.qoder
+.qwen
+.roo
+.trae
+.windsurf

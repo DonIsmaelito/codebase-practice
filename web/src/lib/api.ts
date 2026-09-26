@@ -1,3 +1,4 @@
+import { authHeaders, reportUnauthorized } from "./auth";
 import type {
   Change,
   ChatMessage,
@@ -30,11 +31,13 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
     headers: {
       ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
       // Required on every mutating request: other sites can't send custom
-      // headers to localhost without a CORS preflight, which we never allow.
+      // headers to us without a CORS preflight, which we never allow.
       "X-Coldstart": "1",
+      ...(await authHeaders()),
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
+  if (res.status === 401) reportUnauthorized();
   if (!res.ok) {
     let detail = res.statusText;
     try {
@@ -146,7 +149,7 @@ export async function streamChat(
 ): Promise<void> {
   const res = await fetch(`/api/tasks/${taskId}/chat`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "X-Coldstart": "1" },
+    headers: { "Content-Type": "application/json", "X-Coldstart": "1", ...(await authHeaders()) },
     body: JSON.stringify({ message, context }),
     signal,
   });

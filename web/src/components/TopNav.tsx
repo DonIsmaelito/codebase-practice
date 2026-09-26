@@ -1,7 +1,8 @@
 import clsx from "clsx";
-import { Settings } from "lucide-react";
+import { LogOut, Settings } from "lucide-react";
 import { useEffect } from "react";
 import { Link, NavLink } from "react-router";
+import { authEnabled, signOut } from "../lib/auth";
 import { useDesk } from "../lib/desk";
 
 const links = [
@@ -77,6 +78,11 @@ export default function TopNav() {
             >
               ${remaining.toFixed(2)}
             </span>
+          )}
+          {authEnabled() && (
+            <button onClick={() => void signOut()} className="rounded-md p-1.5 text-fg-2 transition-colors hover:text-fg-0" title="Sign out">
+              <LogOut className="size-4" />
+            </button>
           )}
           <NavLink
             to="/settings"

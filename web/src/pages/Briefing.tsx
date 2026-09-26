@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { Avatar, Button, Card, Chip, Monogram, SectionLabel, Spinner } from "../components/ui";
 import { api } from "../lib/api";
+import { authHeaders } from "../lib/auth";
 import { useDesk } from "../lib/desk";
 import { channelLabel, fidelityLabel } from "../lib/format";
 import type { CaseCard, Company, TaskKind } from "../lib/types";
@@ -35,7 +36,8 @@ export default function Briefing() {
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`/api/cases/${caseId}`)
+    authHeaders()
+      .then((headers) => fetch(`/api/cases/${caseId}`, { headers }))
       .then((r) => r.json())
       .then((data: Preview) => {
         setP(data);

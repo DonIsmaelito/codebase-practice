@@ -39,7 +39,9 @@ async def lifespan(app: FastAPI):
     manager.start()
     flusher = asyncio.create_task(persist.flush_loop(), name="workspace-flush")
     if sandbox.JAIL:
-        log.warning("sandbox self-check: %s", await sandbox.self_check())
+        report = await sandbox.self_check()
+        log.warning("sandbox self-check: %s", report)
+        db.kv_set("sandbox_selfcheck", {**report, "ts": time.time()})
     yield
     flusher.cancel()
     await manager.stop()
@@ -663,7 +665,8 @@ async def drill_answer(drill_id: int, body: dict = Body(...)) -> dict[str, Any]:
 @app.get("/api/settings")
 async def get_settings() -> dict[str, Any]:
     return {"settings": db.settings(), "presets": config.MODEL_PRESETS, "learner": scheduler.learner(),
-            "spend": llm.spend_summary(), "budget": await llm.key_status(force=True)}
+            "spend": llm.spend_summary(), "budget": await llm.key_status(force=True),
+            "sandbox": db.kv_get("sandbox_selfcheck") if sandbox.JAIL else None}
 
 
 @app.put("/api/settings")

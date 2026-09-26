@@ -161,6 +161,26 @@ export default function SettingsPage() {
           </Row>
         </div>
       </Card>
+      {data.sandbox && (
+        <Card className="mt-6 p-6">
+          <SectionLabel>Sandbox</SectionLabel>
+          <p className="mt-2 text-[13px] text-fg-2">
+            Generated code, tests and your terminal run as an unprivileged user. Checked from inside the jail when the server started:
+          </p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+            {[
+              ["Runs as", data.sandbox.uid === 0 ? "root" : `uid ${data.sandbox.uid}`, data.sandbox.uid !== 0],
+              ["Server secrets", data.sandbox.server_environ === "blocked" ? "unreadable" : "READABLE", data.sandbox.server_environ === "blocked"],
+              ["Network", data.sandbox.network === "blocked" ? "none" : "OPEN", data.sandbox.network === "blocked"],
+            ].map(([label, value, ok]) => (
+              <div key={String(label)} className="rounded-lg border border-line bg-ink-0 px-3 py-2">
+                <div className="text-[11.5px] text-fg-3">{label}</div>
+                <div className={clsx("mt-0.5 font-mono text-[13px]", ok ? "text-green" : "text-red")}>{value}</div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
       <div className={clsx("mt-6 text-[12px] text-fg-3")}>
         Your key lives only in <code className="font-mono">.env</code> on this machine. Generated codebases and your progress live in <code className="font-mono">data/</code>.
       </div>

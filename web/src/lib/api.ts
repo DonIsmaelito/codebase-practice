@@ -137,6 +137,7 @@ export interface SettingsPayload {
     by_role: { role: string; model: string; calls: number; cost: number; prompt_tokens: number; completion_tokens: number; cached_tokens: number }[];
   };
   budget: { ok: boolean; limit?: number; remaining?: number; usage?: number };
+  sandbox: { uid: number; init_environ: string; server_environ: string; network: string; net_isolation: boolean; ts: number } | null;
 }
 
 /** Stream mentor replies over server-sent events. */

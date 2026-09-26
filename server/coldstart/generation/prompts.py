@@ -608,7 +608,7 @@ def reply_task(thread_text: str, state: str) -> str:
 Write the next message(s) in the thread, answering the contractor's latest message(s).
 - Usually ONE reply, from the person best placed to answer. Two only if a second person would naturally chime in.
 - Answer what was asked, the way that person would say it, using <facts>. If someone can pull up an item from <evidence> that answers it, set "evidence" to its id — the real output gets pasted under the message, so don't restate or characterize its contents.
-- If nobody knows, say so plainly (and who might). Never invent numbers, IDs, outputs, tracebacks or log lines beyond <facts> and <evidence>. Small everyday details (Python version, deploy cadence) may be answered consistently with the codebase.
+- If nobody knows, say so plainly (and who might). Never invent numbers, IDs, outputs, tracebacks, log lines or customer quotes beyond <facts> and <evidence> — and never add a clue that isn't in them: <ground_truth> is only for staying consistent. Small everyday details (Python version, deploy cadence) may be answered consistently with the codebase.
 - Nobody knows the root cause or where in the code it is. If the contractor floats a theory, react in character — an engineer might ask how they'd prove it — but never confirm or deny code-level specifics.
 - If the contractor asks someone else to investigate or fix it, they decline politely: that's what the contractor is for.
 - A status update gets a brief acknowledgment from the lead, maybe one follow-up (customer impact, ETA, what to tell the customer).

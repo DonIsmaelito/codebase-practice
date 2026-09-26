@@ -199,15 +199,18 @@ def payload(task_id: str) -> dict[str, Any]:
             q = s["query"].lower()
             you = next((rel for rel, mine in searches if mine and (mine in q or q in mine)), None)
         steps.append({**s, "you_at": you})
-    repo = E.case_dir(case_id) / "repo"
+    d = E.case_dir(case_id)
+    touched = [e["path"] for e in E.load_case(case_id)["incident"]["bug_edits"]]
     wanted = {s["path"] for s in steps if s["kind"] == "read"} | {h["path"] for s in steps if s["kind"] == "search"
-                                                               for h in s["hits"]}
-    files = {p: (repo / p).read_text() for p in sorted(wanted) if (repo / p).is_file()}
+                                                               for h in s["hits"]} | set(touched)
+    files = {p: (d / "repo" / p).read_text() for p in sorted(wanted) if (d / "repo" / p).is_file()}
+    fixed = {p: (d / "clean" / p).read_text() for p in touched if (d / "clean" / p).is_file()}
     return {
         "status": "ready",
         "steps": steps,
         "takeaway": data.get("takeaway", ""),
         "files": files,
+        "fixed": fixed,  # the touched files after the canonical fix, for the fix step's diff
         "expert_seconds": (steps[-1]["at"] + 30) if steps else 0,
         "your_seconds": round(t["active_seconds"] or 0),
     }

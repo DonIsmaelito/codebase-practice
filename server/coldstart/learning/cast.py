@@ -63,7 +63,8 @@ def status(case_id: str) -> str:
 
 def ensure(case_id: str) -> str:
     current = status(case_id)
-    if current != "ready" and bg.spawn(f"cast:{case_id}", lambda: generate(case_id)):
+    # A failed cast costs a designer call; don't retry more than twice an hour.
+    if current != "ready" and bg.spawn(f"cast:{case_id}", lambda: generate(case_id), retry_after=1800):
         return "generating"
     return current
 
@@ -266,13 +267,11 @@ async def _reply(task_id: str) -> None:
 
 def tick(t: dict[str, Any], case_id: str) -> None:
     """Called on every poll during an incident: deliver beats that are due, keep things moving."""
-    if t["kind"] != "incident":
+    if t["kind"] != "incident" or t["status"] != "active":
         return
     cast = load(case_id)
     if not cast:
         ensure(case_id)
-        return
-    if t["status"] != "active":
         return
     done = {r["beat_id"] for r in db.all_("SELECT beat_id FROM thread_messages WHERE task_id = ? AND beat_id IS NOT NULL",
                                           t["id"])}

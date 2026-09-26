@@ -331,7 +331,7 @@ async def test_replay_runs_commands_for_real_and_repairs_broken_ones():
     view = replay.payload(t["id"])
     read = next(s for s in view["steps"] if s["kind"] == "read")
     assert read["you_at"] == pytest.approx(200, abs=1)
-    assert view["files"]["shop/pricing.py"] == BUGGY
+    assert view["files"]["shop/pricing.py"] == BUGGY and view["fixed"]["shop/pricing.py"] == CLEAN
     assert view["your_seconds"] == 600
 
 
